@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单日良率升级为双轴组合图**：将单日平均良率图升级为**投入/产出柱状图 + 良率折线图**组合视图，产能规模与良率波动一目了然。
-        - **机台与操作者贡献度直观对比**：保留单项不良横向柱状排行图，快速锁定责任机台或操作者。
-        - **稳健目标线与清洗逻辑保留**：自动剔除 $\mu + 3\sigma$ 离群值计算目标线，保留分切 `too much` 真实异常。
+        - **常驻数据清洗提示横幅**：将一闪而过的气泡提示升级为页面顶部常驻醒目提示，清晰汇报修正数量及放行的分切来料过多记录。
+        - **精准识别 `too much` 数值列**：自动扫描含 `too much` 的不良数值列，精确放行分切碾压来料过多的真实异常。
+        - **单日投入产出与良率组合图**：延续双轴组合视图、稳健目标线算法及横向责任排行。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -96,8 +96,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Daily Combo Chart Upgrade**: Upgraded daily yield trend to a dual-axis Input/Output Bar + Yield Line combo chart.
-        - **All Core Features Preserved**: Maintained robust target lines, slitting anomaly preservation, and horizontal ranking bars.
+        - **Persistent Data Cleaning Banner**: Replaced transient toasts with a prominent persistent status banner detailing fixed rows and preserved 'too much' slitting records.
+        - **Column-Level 'too much' Detection**: Scans both numeric defect columns and text columns for 'too much' anomalies.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -208,7 +208,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 增强型数据清洗（兼顾分切碾压来料过多异常） =================
+# ================= 4. 增强型数据清洗（带常驻醒目报告提示） =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -219,18 +219,30 @@ if has_fpy:
     if df["FPY"].dropna().max() <= 1.5:
         df["FPY"] = df["FPY"] * 100.0
 
+fixed_count = 0
+preserved_too_much_count = 0
+
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
     
-    is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(True, index=df.index)
+    # 判断是否属于涂布工序
+    is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(False, index=df.index)
     
+    # 全面检查是否存在 "too much" 真实异常（既检查文本列包含 too much，也检查列名含 too much 且数值 > 0）
     has_too_much = pd.Series(False, index=df.index)
     for col_c in df.columns:
-        if df[col_c].dtype == object:
+        if "too much" in col_c.lower() or "toomuch" in col_c.lower():
+            num_vals = pd.to_numeric(df[col_c], errors="coerce").fillna(0)
+            has_too_much = has_too_much | (num_vals > 0)
+        elif df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
+    # 需要执行自动修正的行：投入 < 产出，且（属于涂布工序 OR 不含 too much 真实来料过多异常）
     fixable_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
+    preserved_mask = raw_abnormal_mask & (~fixable_mask)
+
     fixed_count = int(fixable_mask.sum())
+    preserved_too_much_count = int(preserved_mask.sum())
 
     if fixed_count > 0:
         df.loc[fixable_mask, "OutQty"] = df.loc[fixable_mask, "INQty"] - df.loc[fixable_mask, "ScrapQty"]
@@ -241,9 +253,22 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
             df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
             df.loc[fixable_mask & (df["INQty"] <= 0), "FPY"] = 0.0
 
-        st.toast(f"🛠️ Data auto-cleaned: Fixed {fixed_count} standard input/output discrepancies (Preserved legitimate 'too much' slitting anomalies).", icon="✅")
+# 在页面顶部展示常驻醒目的数据清洗与校验报告
+if fixed_count > 0 or preserved_too_much_count > 0:
+    if curr_lang == "zh":
+        msg_parts = []
+        if fixed_count > 0:
+            msg_parts.append(f"已自动修正 **{fixed_count}** 条 `投入 < 产出` 的异常记录（重算产出与 FPY）")
+        if preserved_too_much_count > 0:
+            msg_parts.append(f"已智能保留放行 **{preserved_too_much_count}** 条分切碾压来料过多（`too much`）的真实异常记录")
+        st.info("🛠️ **数据逻辑闭环校验报告**：" + "；".join(msg_parts) + "。")
+    else:
+        st.info(f"🛠️ **Data Integrity Check**: Auto-corrected **{fixed_count}** records where `INQty < OutQty`, and preserved **{preserved_too_much_count}** legitimate slitting over-input (`too much`) records.")
 else:
-    fixed_count = 0
+    if curr_lang == "zh":
+        st.success("✅ **数据逻辑校验通过**：当前数据集中未发现 `投入 < 产出` 的异常偏差记录。")
+    else:
+        st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected in the current dataset.")
 
 # ================= 5. 动态不良矩阵识别 =================
 exclude_keywords = ["lotno", "batch", "person", "machine", "date", "class", "product", "process", "qty", "fpy", "scrap"]
@@ -399,7 +424,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（原功能完整保留） =================
+# ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -693,7 +718,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         fig_date_combo = go.Figure()
 
-        # 左轴柱状图 1：总投入 (INQty)
         fig_date_combo.add_trace(go.Bar(
             x=daily_agg["DayStr"],
             y=daily_agg["INQty"],
@@ -703,7 +727,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
             offsetgroup=0
         ))
 
-        # 左轴柱状图 2：总产出 (OutQty)
         fig_date_combo.add_trace(go.Bar(
             x=daily_agg["DayStr"],
             y=daily_agg["OutQty"],
@@ -713,7 +736,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
             offsetgroup=1
         ))
 
-        # 右轴折线图：单日平均良率 (FPY)
         fig_date_combo.add_trace(go.Scatter(
             x=daily_agg["DayStr"],
             y=daily_agg["FPY"],
@@ -727,7 +749,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
             yaxis="y2"
         ))
 
-        # 右轴目标线 (基于 y2 坐标系添加水平虚线及左上角注释)
         target_label_d = f"Target: {target_fpy_date}%" if curr_lang=="en" else f"目标线: {target_fpy_date}%"
         fig_date_combo.add_shape(
             type="line",
