@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 统一图表配置：默认拖拽为平移(pan)，并关闭鼠标滚轮缩放(scrollZoom=False)防止误操作
+# 统一图表配置：默认拖拽为平移(pan)，关闭鼠标滚轮缩放(scrollZoom=False)防止误触
 DEFAULT_CHART_CONFIG = {
     "dragmode": "pan",
     "scrollZoom": False,
@@ -37,7 +37,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **图表交互防误触优化**：默认工具设为平移（Pan），并**关闭了鼠标滚轮缩放**，彻底杜绝滚动页面时误触放大图表的烦恼。
+        - **极端录入错误高亮校验**：新增对“产出远大于投入（如投入3万产出5万）”等极端不合理录入错误的自动检测与高亮明细罗列，方便人员上报修改。
+        - **图表交互与防误触优化**：默认工具设为平移（Pan），关闭滚轮缩放，消除误触烦恼。
         - **UI 国际化与数据准确性**：完美切换全英文界面，100% 保留底层业务数据准确性。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -112,8 +113,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Scroll Zoom Disabled**: Default to Pan tool with scroll zoom disabled, preventing accidental chart zooming while scrolling through the page.
-        - **UI Localization & Data Integrity**: Fully translated UI titles, labels, and chart headers into English while 100% preserving raw MES business data content.
+        - **Extreme Input/Output Error Highlighting**: Automatically detects and highlights extreme input/output discrepancies (e.g., input 30k, output 50k) for easy reporting and correction.
+        - **Default Pan & Scroll Lock**: Default to Pan tool with scroll zoom disabled.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -234,7 +235,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 增强型数据清洗（带常驻醒目报告提示） =================
+# ================= 4. 增强型数据清洗（含极端输入产出错误检测与高亮警示） =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -247,6 +248,7 @@ if has_fpy:
 
 fixed_count = 0
 preserved_too_much_count = 0
+extreme_error_df = pd.DataFrame()
 
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
@@ -261,7 +263,14 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
         elif df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
-    fixable_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
+    # 1. 涂布工序 或 纯逻辑不合理的异常（如投入3万产出5万这种无 too much 支撑的巨大偏差）判定为极端录入错误
+    extreme_error_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
+    
+    # 提取这些极端错误记录用于高亮展示供人员上报修改
+    if extreme_error_mask.sum() > 0:
+        extreme_error_df = df[extreme_error_mask].copy()
+
+    fixable_mask = extreme_error_mask
     preserved_mask = raw_abnormal_mask & (~fixable_mask)
 
     fixed_count = int(fixable_mask.sum())
@@ -276,21 +285,33 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
             df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
             df.loc[fixable_mask & (df["INQty"] <= 0), "FPY"] = 0.0
 
+# 顶部常驻提示与极端错误高亮表格展示
 if fixed_count > 0 or preserved_too_much_count > 0:
     if curr_lang == "zh":
         msg_parts = []
         if fixed_count > 0:
-            msg_parts.append(f"已自动修正 **{fixed_count}** 条 `投入 < 产出` 的异常记录（重算产出与 FPY）")
+            msg_parts.append(f"已拦截并修正 **{fixed_count}** 条极端不合理记录（如 `产出远大于投入` 等录入错误）")
         if preserved_too_much_count > 0:
             msg_parts.append(f"已智能保留放行 **{preserved_too_much_count}** 条分切碾压来料过多（`too much`）的真实异常记录")
-        st.info("🛠️ **数据逻辑闭环校验报告**：" + "；".join(msg_parts) + "。")
+        st.warning("⚠️ **数据逻辑闭环校验与录入异常警示**：" + "；".join(msg_parts) + "。")
     else:
-        st.info(f"🛠️ **Data Integrity Check**: Auto-corrected **{fixed_count}** records where `INQty < OutQty`, and preserved **{preserved_too_much_count}** legitimate slitting over-input (`too much`) records.")
+        st.warning(f"⚠️ **Data Integrity Alert**: Auto-corrected **{fixed_count}** extreme discrepancies (e.g., Output >> Input), and preserved **{preserved_too_much_count}** legitimate slitting over-input records.")
 else:
     if curr_lang == "zh":
         st.success("✅ **数据逻辑校验通过**：当前数据集中未发现 `投入 < 产出` 的异常偏差记录。")
     else:
         st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected in the current dataset.")
+
+# 如果检测到极端录入错误，高亮列出明细表格供人员上报修改
+if not extreme_error_df.empty:
+    if curr_lang == "zh":
+        st.error(f"🚨 **发现 {len(extreme_error_df)} 条疑似 MES 录入错误的数据（如投入远小于产出）！请核对以下明细并截图上报 MES 管理员进行修改：**")
+    else:
+        st.error(f"🚨 **Detected {len(extreme_error_df)} potential MES input error records! Please review the highlighted table below and report to admin:**")
+    
+    highlight_cols = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "PersonName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in extreme_error_df.columns]
+    st.dataframe(extreme_error_df[highlight_cols].style.background_gradient(subset=["INQty", "OutQty"], cmap="Reds"), use_container_width=True, hide_index=True)
+    st.markdown("---")
 
 # ================= 5. 动态不良矩阵识别 =================
 exclude_keywords = ["lotno", "batch", "person", "machine", "date", "class", "product", "process", "qty", "fpy", "scrap"]
