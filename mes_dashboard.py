@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **稳健目标线算法升级**：目标线计算前自动过滤掉 $\mu + 3\sigma$ 以外的极端离群值，避免大异常拉大标准差；真实数据展示保持完整、绝不剔除。
-        - **分切碾压异常智能放行**：完美保留分切工序中含 `too much` 等碾压来料过多的真实异常。
-        - **多维度协同对比与全功能继承**：保留多机台/操作者对比、Y轴上限调节、百分比单位及双粒度切换。
+        - **机台与操作者贡献度直观对比**：将繁杂的多维度折线图优化为**横向柱状对比图**，一目了然看出哪个机台/操作者不良占比最高。
+        - **稳健目标线算法升级**：目标线计算前自动过滤掉 $\mu + 3\sigma$ 以外的极端离群值，真实数据展示完整保留。
+        - **分切碾压异常智能放行**：保留分切工序中含 `too much` 等碾压来料过多的真实异常。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -62,7 +62,7 @@ LANG_DICT = {
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
         "defect_trend_header": "🔍 单项不良变化推移图",
-        "defect_multi_header": "📊 单项不良多维度协同对比分析（机台/操作者关联性判定）",
+        "defect_multi_header": "📊 单项不良责任归属快速对比（机台/操作者占比排行）",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -92,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Robust Target Line Algorithm**: Filters out extreme outliers beyond Mean + 3*Sigma specifically for target calculation, while keeping all raw data intact on charts.
-        - **Smart Slitting Over-input Preservation**: Retains legitimate over-input anomalies containing 'too much'.
+        - **Intuitive Ranking Comparison**: Replaced complex multi-line charts with clean horizontal bar charts showing machine/operator defect share.
+        - **Robust Target Line & Slitting Preservation**: Maintained robust Mean-1Sigma calculation and 'too much' anomaly preservation.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -123,7 +123,7 @@ LANG_DICT = {
         "col_s_in": "Input Loss Rate",
         "col_cum": "Cum. Share",
         "defect_trend_header": "🔍 Single Defect Trend Analysis",
-        "defect_multi_header": "📊 Single Defect Multi-Dimensional Comparison",
+        "defect_multi_header": "📊 Single Defect Responsibility Ranking",
         "def_sel": "🎯 1. Select Defect Item:",
         "def_view": "📊 2. Select View Granularity:",
         "view_daily": "Daily Summary Trend",
@@ -391,7 +391,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（引入稳健目标线：剔除 > μ+3σ 后的 Mean - 1Sigma） =================
+# ================= 9. 动态单项不良变化推移图（原功能完整保留） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -425,16 +425,14 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
-            # --- 🛠️ 稳健目标线计算逻辑：先剔除 > μ + 3σ 的极端数据，再计算 Mean - 1*Sigma ---
             raw_series = daily_defect_agg[y_col].dropna()
             if not raw_series.empty:
                 init_mean = raw_series.mean()
                 init_std = raw_series.std()
-                # 仅用于目标值定义的临时过滤（不影响真实数据展示）
                 upper_bound = init_mean + 3.0 * (init_std if not np.isnan(init_std) else 0.0)
                 robust_series = raw_series[raw_series <= upper_bound]
                 if robust_series.empty:
-                    robust_series = raw_series # 兜底保护
+                    robust_series = raw_series
                 
                 robust_mean = robust_series.mean()
                 robust_std = robust_series.std()
@@ -473,7 +471,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     step=0.1 if is_rate_mode else 10.0
                 )
 
-            # 真实数据展示：保持完整，绝对不剔除任何点
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
             target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
             fig_def.add_hline(
@@ -500,7 +497,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
 
-            # --- 🛠️ 稳健目标线计算逻辑（单卷明细粒度） ---
             raw_series = roll_df[y_col].dropna()
             if not raw_series.empty:
                 init_mean = raw_series.mean()
@@ -547,7 +543,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     step=0.1 if is_rate_mode else 10.0
                 )
 
-            # 真实数据展示：保持完整，绝对不剔除任何点
             fig_def = px.line(
                 roll_df,
                 x="TestDate",
@@ -572,55 +567,55 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 9.1 单项不良多维度协同对比分析图（机台/操作者关联性判定） =================
+# ================= 9.1 单项不良责任归属快速对比（横向柱状排行替代繁杂折线） =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
-    multi_col1, multi_col2, multi_col3 = st.columns([1.2, 1.2, 1.2])
-    with multi_col1:
-        multi_selected_defect = st.selectbox("🎯 选择对比的不良项目：", current_active_defects, key="multi_def_sel")
-    with multi_col2:
-        compare_dimension = st.selectbox("📊 选择对比维度：", ["MachineName (机台)", "PersonName (操作者)"], key="multi_dim_sel")
-    with multi_col3:
-        multi_metric_mode = st.radio("📐 选择统计口径：", ["不良数量汇总", "不良率 (% 总投入)"], horizontal=True, key="multi_metric_sel")
+    rank_col1, rank_col2 = st.columns([1.5, 1.5])
+    with rank_col1:
+        rank_selected_defect = st.selectbox("🎯 选择分析的不良项目：", current_active_defects, key="rank_def_sel")
+    with rank_col2:
+        rank_dimension = st.selectbox("📊 选择归属维度：", ["MachineName (机台)", "PersonName (操作者)"], key="rank_dim_sel")
 
-    dim_col = "MachineName" if "MachineName" in compare_dimension else "PersonName"
-    if dim_col in display_df.columns:
-        multi_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
-        multi_df["DayStr"] = multi_df["TestDate"].dt.strftime("%Y-%m-%d")
-        
-        is_multi_rate = "不良率" in multi_metric_mode
-        
-        multi_agg = multi_df.groupby(["DayStr", dim_col], as_index=False).agg({
-            multi_selected_defect: "sum",
+    dim_field = "MachineName" if "MachineName" in rank_dimension else "PersonName"
+    if dim_field in display_df.columns:
+        # 按机台或操作者直接做总体聚合汇总，计算总不良数及占总不良的百分比
+        rank_df = display_df.groupby(dim_field, as_index=False).agg({
+            rank_selected_defect: "sum",
             "INQty": "sum"
-        }).sort_values("DayStr")
+        })
 
-        multi_agg["DefectRatePercent"] = np.where(
-            multi_agg["INQty"] > 0, 
-            (multi_agg[multi_selected_defect] / multi_agg["INQty"]) * 100.0, 
+        total_defect_sum = rank_df[rank_selected_defect].sum()
+        rank_df["SharePercent"] = np.where(
+            total_defect_sum > 0, 
+            (rank_df[rank_selected_defect] / total_defect_sum) * 100.0, 
             0.0
         )
+        
+        # 降序排序，让不良最多的排在最上面（横向柱状图习惯）
+        rank_df = rank_df.sort_values(rank_selected_defect, ascending=True)
 
-        y_multi_col = "DefectRatePercent" if is_multi_rate else multi_selected_defect
-        y_multi_title = f"{multi_selected_defect} (%)" if is_multi_rate else f"{multi_selected_defect} (Qty)"
-
-        fig_multi = px.line(
-            multi_agg,
-            x="DayStr",
-            y=y_multi_col,
-            color=dim_col,
-            markers=True,
-            title=f"{multi_selected_defect} - {dim_col} Comparison Analysis"
+        fig_rank = px.bar(
+            rank_df,
+            x=rank_selected_defect,
+            y=dim_field,
+            orientation="h",
+            text=rank_df.apply(lambda row: f"{row[rank_selected_defect]:,.1f} ({row['SharePercent']:.1f}%)", axis=1),
+            color=rank_selected_defect,
+            color_continuous_scale="Reds",
+            title=f"【{rank_selected_defect}】按 {dim_field} 累计不良及占比排行"
         )
-        fig_multi.update_layout(
-            xaxis=dict(type="category", tickangle=-35, title=t["x_date"]),
-            yaxis=dict(title=y_multi_title),
-            height=450
+        fig_rank.update_traces(textposition="outside")
+        fig_rank.update_layout(
+            xaxis=dict(title="不良数量合计 (Qty)", range=[0, rank_df[rank_selected_defect].max() * 1.30]),
+            yaxis=dict(title=dim_field),
+            coloraxis_showscale=False,
+            height=400,
+            margin=dict(t=40, b=40, l=50, r=50)
         )
-        st.plotly_chart(fig_multi, use_container_width=True)
+        st.plotly_chart(fig_rank, use_container_width=True)
     else:
-        st.warning(f"⚠️ 当前数据源中未检测到列 **{dim_col}**，无法进行该维度的对比。")
+        st.warning(f"⚠️ 当前数据源中未检测到列 **{dim_field}**，无法生成责任归属排行。")
 
 st.markdown("---")
 
