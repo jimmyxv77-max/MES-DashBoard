@@ -13,7 +13,7 @@ LOCKED_DEFECT_TARGETS = {
 
 # 1. 页面基本配置
 st.set_page_config(
-    page_title="Tenpower electrode dashboard",
+    page_title="Electrode Dashboard",
     page_icon="📊",
     layout="wide"
 )
@@ -28,7 +28,7 @@ DEFAULT_CHART_CONFIG = {
 # ================= 语言词典配置 (UI 标题/提示全双语，业务数据源原样保留) =================
 LANG_DICT = {
     "zh": {
-        "title_text": "Tenpower electrode dashboard",
+        "title_text": "Electrode Dashboard",
         "author": "created by xu",
         "import_header": "📁 数据源导入",
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
@@ -37,9 +37,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **企业真实 Logo 接入**：主标题左侧已替换为 TENPOWER 公司真实品牌标识，尺寸经过精致调校。
-        - **单项不良目标线联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。
-        - **业务逻辑精准分流**：涂布工序异常自动修正执行；分切来料多（too much）保留原数据执行；极端录入错误高亮罗列。
+        - **底部独立明细反馈**：新增底部“涂布自动修正明细”与“分切来料多放行明细”表格，方便针对性反馈与错误核对。
+        - **标题精简**：主标题已更新为 **Electrode Dashboard**。
+        - **目标线动态联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。
         - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -105,7 +105,7 @@ LANG_DICT = {
         "legend_fpy": "单日平均良率 (%)",
     },
     "en": {
-        "title_text": "Tenpower electrode dashboard",
+        "title_text": "Electrode Dashboard",
         "author": "created by xu",
         "import_header": "📁 Data Source Import",
         "import_help": "Drag and drop your MES production data table here",
@@ -114,9 +114,9 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Official Corporate Logo Integrated**: Replaced main header icon with Tenpower's official corporate logo with refined compact sizing.
+        - **Bottom Detail Tables**: Added dedicated detail tables at the bottom for coating auto-corrections and slitting 'too much' overrides.
+        - **Header Simplified**: Main title updated to **Electrode Dashboard**.
         - **Target Line Dynamic Binding Fixed**: Fixed target value persistence bugs.
-        - **Business Routing & Pan Support**: Maintained smart routing and default Pan tool with scroll lock.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -189,10 +189,9 @@ with top_col2:
 
 t = LANG_DICT[curr_lang]
 
-# 官方真实 Logo URL (基于你提供的图片提取的官方标准企业标识)
+# 官方真实 Logo URL
 logo_url = "https://www.tenpowercell.com/wp-content/themes/tenpower/images/logo-big-white.png"
 
-# 使用 HTML 优雅排版：左侧放置缩小后的真实 Logo，右侧紧跟主标题文字
 st.markdown(
     f"""
     <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 5px;">
@@ -249,7 +248,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 增强型数据清洗与规则分流 =================
+# ================= 4. 增强型数据清洗与规则分流（含明细收集） =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -262,6 +261,8 @@ if has_fpy:
 
 fixed_count = 0
 preserved_too_much_count = 0
+coating_fixed_df = pd.DataFrame()
+preserved_too_much_df = pd.DataFrame()
 extreme_error_df = pd.DataFrame()
 
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
@@ -283,6 +284,7 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
     coating_fix_mask = raw_abnormal_mask & is_coating
     fixed_count = int(coating_fix_mask.sum())
     if fixed_count > 0:
+        coating_fixed_df = df[coating_fix_mask].copy()
         df.loc[coating_fix_mask, "OutQty"] = df.loc[coating_fix_mask, "INQty"] - df.loc[coating_fix_mask, "ScrapQty"]
         df.loc[df["OutQty"] < 0, "OutQty"] = 0
         if has_fpy:
@@ -293,6 +295,8 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
     # 规则 2：分切或其他工序含有 too much 来料多 -> 保留原数据继续执行
     preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
     preserved_too_much_count = int(preserved_too_much_mask.sum())
+    if preserved_too_much_count > 0:
+        preserved_too_much_df = df[preserved_too_much_mask].copy()
 
     # 规则 3：既不是涂布、又没有 too much 支撑的极端不合理异常 -> 警示并罗列明细供上报修改
     extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
@@ -520,7 +524,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 defect_trend_df = defect_trend_df[defect_trend_df["MachineName"].astype(str).isin(selected_defect_machines)]
 
     if not defect_trend_df.empty:
-        # 动态生成唯一的组件 key 绑定前缀，彻底解决切换项目时目标线不刷新、值滞留的 Bug
         dynamic_input_key_suffix = f"{selected_defect}_{is_roll_mode}_{is_rate_mode}"
 
         if not is_roll_mode:
@@ -972,7 +975,7 @@ if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empt
     ws_def = wb["Defect Trend Analysis"]
     max_r_def = len(global_daily_defect_agg) + 1
 
-    chart_col_def =BarChart()
+    chart_col_def = BarChart()
     chart_col_def.type = "col"
     chart_col_def.style = 13
     chart_col_def.title = f"Single Defect Trend ({selected_defect or 'Defect'})"
@@ -1027,3 +1030,28 @@ with export_col2:
 
 format_dict = {"FPY": "{:.2f}%"} if has_fpy else {}
 st.dataframe(display_df.style.format(format_dict, na_rep="-"), use_container_width=True)
+
+# ================= 12. 页面底部：数据智能校验与分流明细反馈专区 =================
+st.markdown("---")
+st.markdown("### 📋 MES 数据智能校验与分流处理明细反馈")
+
+tab_det1, tab_det2 = st.tabs([
+    f"🛠️ 涂布工序自动修正明细 ({len(coating_fixed_df)} 条)", 
+    f"🚀 分切来料多(too much)保留放行明细 ({len(preserved_too_much_df)} 条)"
+])
+
+with tab_det1:
+    if not coating_fixed_df.empty:
+        st.info("以下涂布工序批次因产出大于投入已被系统自动化逻辑安全修正（OUT = IN - Scrap）：")
+        detail_cols = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "PersonName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in coating_fixed_df.columns]
+        st.dataframe(coating_fixed_df[detail_cols], use_container_width=True, hide_index=True)
+    else:
+        st.success("当前数据集中无涂布工序自动修正记录。")
+
+with tab_det2:
+    if not preserved_too_much_df.empty:
+        st.info("以下分切等工序批次因包含 `too much`（来料过多）真实工艺现象，已按规则安全保留原数据执行：")
+        detail_cols_p = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "PersonName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in preserved_too_much_df.columns]
+        st.dataframe(preserved_too_much_df[detail_cols_p], use_container_width=True, hide_index=True)
+    else:
+        st.success("当前数据集中无分切来料多保留放行记录。")
