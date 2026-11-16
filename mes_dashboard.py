@@ -30,8 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **图表文案极简优化**：移除了图表注释中的 `μ-σ` 标识，统一直观显示为“目标线”。
-        - **智能默认目标线**：单项不良默认目标线采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)** 动态计算。
+        - **单项不良 Y 轴上限调节恢复**：重新加入单项不良统计的 Y 轴上限自定义输入框，支持自由缩放观察。
+        - **图表文案极简优化**：移除了图表注释中的数学符号，统一直观显示为“目标线”。
+        - **智能默认目标线**：采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)** 动态计算。
         - **单位与坐标全面统一**：单项不良率推移采用百分比（%）单位，坐标轴与提示完美带上 `%`。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -91,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Streamlined UI Text**: Removed mathematical notations from chart annotations for cleaner display.
-        - **Smart Default Target**: Single defect target line uses Mean - 1*Sigma dynamically.
+        - **Single Defect Y-Axis Upper Limit Restored**: Re-added Y-axis upper limit input control.
+        - **Streamlined UI Text**: Removed mathematical notations from chart annotations.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -380,7 +381,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（去掉了图表内的 μ-σ 标注，统称为目标线） =================
+# ================= 9. 动态单项不良变化推移图（恢复 Y 轴上限设置控件） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -427,7 +428,8 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
             
-            adj_col1, adj_col2 = st.columns([1, 3])
+            # 引入控制面板：目标线设置 + Y 轴上限设置
+            adj_col1, adj_col2, adj_col3 = st.columns([1, 1, 2])
             with adj_col1:
                 if locked_val is not None:
                     st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
@@ -440,6 +442,14 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         value=float(round(sigma_default, 2)),
                         step=0.01 if is_rate_mode else 1.0
                     )
+            with adj_col2:
+                custom_defect_ymax = st.number_input(
+                    t["y_max_label"],
+                    min_value=0.01 if is_rate_mode else 1.0,
+                    max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
+                    value=float(max(auto_max, target_defect_val * 1.2)),
+                    step=0.1 if is_rate_mode else 10.0
+                )
 
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
             target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
@@ -452,7 +462,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             )
             fig_def.update_layout(
                 xaxis=dict(type="category", tickangle=-35),
-                yaxis=dict(title=y_axis_title, range=[0, max(auto_max, target_defect_val * 1.2)]),
+                yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
                 height=430
             )
             st.plotly_chart(fig_def, use_container_width=True)
@@ -480,7 +490,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
             
-            adj_col1, adj_col2 = st.columns([1, 3])
+            adj_col1, adj_col2, adj_col3 = st.columns([1, 1, 2])
             with adj_col1:
                 if locked_val is not None:
                     st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
@@ -493,6 +503,14 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         value=float(round(sigma_default, 2)),
                         step=0.01 if is_rate_mode else 1.0
                     )
+            with adj_col2:
+                custom_defect_ymax = st.number_input(
+                    t["y_max_label"],
+                    min_value=0.01 if is_rate_mode else 1.0,
+                    max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
+                    value=float(max(auto_max, target_defect_val * 1.2)),
+                    step=0.1 if is_rate_mode else 10.0
+                )
 
             fig_def = px.line(
                 roll_df,
@@ -511,7 +529,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             )
             fig_def.update_layout(
                 xaxis=dict(title=t["x_time"]),
-                yaxis=dict(title=y_axis_title, range=[0, max(auto_max, target_defect_val * 1.2)]),
+                yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
                 height=430
             )
             st.plotly_chart(fig_def, use_container_width=True)
