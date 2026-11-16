@@ -37,9 +37,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **底部独立明细反馈**：新增底部“涂布自动修正明细”与“分切来料多放行明细”表格，方便针对性反馈与错误核对。
-        - **标题精简**：主标题已更新为 **Electrode Dashboard**。
-        - **目标线动态联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。
+        - **图例遮挡完美修复**：单日组合图的图例已调整至图表上方正中，彻底避免与右上角控件图标重叠。
+        - **底部独立明细反馈**：保留底部涂布修正与分切来料多放行明细表格。
         - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -114,9 +113,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Bottom Detail Tables**: Added dedicated detail tables at the bottom for coating auto-corrections and slitting 'too much' overrides.
-        - **Header Simplified**: Main title updated to **Electrode Dashboard**.
-        - **Target Line Dynamic Binding Fixed**: Fixed target value persistence bugs.
+        - **Legend Overlap Fixed**: Combo chart legend repositioned to top center to prevent control bar overlap.
+        - **Bottom Detail Tables**: Retained dedicated detail tables at the bottom.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -268,10 +266,8 @@ extreme_error_df = pd.DataFrame()
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
     
-    # 识别涂布工序
     is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(False, index=df.index)
     
-    # 识别来料多 (too much)
     has_too_much = pd.Series(False, index=df.index)
     for col_c in df.columns:
         if "too much" in col_c.lower() or "toomuch" in col_c.lower():
@@ -280,7 +276,6 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
         elif df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
-    # 规则 1：涂布工序且产出大于投入 -> 直接自动修正执行
     coating_fix_mask = raw_abnormal_mask & is_coating
     fixed_count = int(coating_fix_mask.sum())
     if fixed_count > 0:
@@ -292,18 +287,15 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
             df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
             df.loc[coating_fix_mask & (df["INQty"] <= 0), "FPY"] = 0.0
 
-    # 规则 2：分切或其他工序含有 too much 来料多 -> 保留原数据继续执行
     preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
     preserved_too_much_count = int(preserved_too_much_mask.sum())
     if preserved_too_much_count > 0:
         preserved_too_much_df = df[preserved_too_much_mask].copy()
 
-    # 规则 3：既不是涂布、又没有 too much 支撑的极端不合理异常 -> 警示并罗列明细供上报修改
     extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
     if extreme_error_mask.sum() > 0:
         extreme_error_df = df[extreme_error_mask].copy()
 
-# 顶部常驻提示
 if fixed_count > 0 or preserved_too_much_count > 0 or not extreme_error_df.empty:
     msg_parts = []
     if fixed_count > 0:
@@ -323,7 +315,6 @@ else:
     else:
         st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected.")
 
-# 如果检测到极端录入错误，直接平稳罗列明细表格供核对上报
 if not extreme_error_df.empty:
     if curr_lang == "zh":
         st.error(f"🚨 **发现 {len(extreme_error_df)} 条极端不合理数据（无 too much 支撑的产出远大于投入）！请核对以下明细并截图上报 MES 管理员修改：**")
@@ -910,15 +901,16 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
                 range=[custom_fpy_min, 100.8],
                 showgrid=False
             ),
+            # 🛠️ 关键修复：将图例移至图表上方正中央，水平横向排列，避开右上角工具栏控件图标
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                y=1.12,
+                xanchor="center",
+                x=0.5
             ),
-            height=460,
-            margin=dict(t=45, b=75),
+            height=470,
+            margin=dict(t=70, b=75),
             dragmode="pan"
         )
         st.plotly_chart(fig_date_combo, use_container_width=True, config=DEFAULT_CHART_CONFIG)
