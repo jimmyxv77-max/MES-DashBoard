@@ -7,10 +7,8 @@ import io
 from openpyxl.chart import BarChart, LineChart, Reference
 
 # ================= 🎛️ 不良目标线锁死接口 (预留配置区) =================
-# 说明：如果某个不良项目有固定的质量目标线，可以直接在此处配置数值（如 0.5 代表 0.5%）。
-# 如果保持为空，则系统自动根据当前数据的 【平均值 - 1 * 标准差 (Mean - 1*Sigma)】 作为智能默认目标线。
 LOCKED_DEFECT_TARGETS = {
-    # "Coating Dimensional NG": 1.5,
+    # 示例格式："Calendaring Incoming Shortage": 0.5,
 }
 
 # 1. 页面基本配置
@@ -32,7 +30,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **智能默认目标线调优**：单项不良默认目标线更新为 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)**，管控阈值更加严苛贴合业务。
+        - **界面文案精简**：去掉了图表标题中繁琐的括号描述文字，看板视觉更清爽专业。
+        - **智能默认目标线**：单项不良默认目标线采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)**。
         - **单位与坐标全面统一**：单项不良率推移采用百分比（%）单位，坐标轴与提示完美带上 `%`。
         - **双粒度全线打通**：完美支持按单日汇总与按单卷明细（分机台）双视角切换。
         """,
@@ -53,7 +52,7 @@ LANG_DICT = {
         "kpi_scrap": "总废弃 (ScrapQty)",
         "kpi_fpy": "平均单卷良率 (FPY)",
         "pareto_header": "📉 工序异常明细分析",
-        "pareto_title": "📊 异常帕累托图（柱状=实际数量，折线=累计不良占比）",
+        "pareto_title": "📊 异常帕累托图",
         "radio_share": "选择柱状图展示维度：",
         "share_1": "占总不良比例 (%)",
         "share_2": "占总投入比例 (%) [损失率]",
@@ -63,7 +62,7 @@ LANG_DICT = {
         "col_s_defect": "占总不良比例",
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
-        "defect_trend_header": "🔍 单项不良变化推移图（智能 Mean - 1σ 控制线 & 双粒度支持）",
+        "defect_trend_header": "🔍 单项不良变化推移图",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -75,8 +74,8 @@ LANG_DICT = {
         "def_target_label": "🎯 单项不良目标线阈值设置 (Mean - 1σ 智能自适应)：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
-        "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含机台目标线）",
-        "t_d_trend": "📅 2. 单日平均良率变化推移走势（含单日目标线 · 完整日期刻度）",
+        "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势",
+        "t_d_trend": "📅 2. 单日平均良率变化推移走势",
         "table_detail": "📋 生产批次明细数据表（当前筛选结果）",
         "x_time": "生产时间",
         "x_date": "生产日期",
@@ -93,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
+        - **Clean UI Titles**: Removed redundant bracket descriptions from chart titles.
         - **Smart Mean - 1Sigma Default Target**: Single defect target line updated to Mean - 1*Sigma.
-        - **Unified Percentage Units**: Percentage formatting applied consistently across axes and tooltips.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -382,7 +381,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（默认目标线改为 Mean - 1Sigma） =================
+# ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -417,7 +416,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
-            # 计算统计学 Mean - 1 * Sigma 作为智能默认目标线
             series_vals = daily_defect_agg[y_col]
             mean_val = float(series_vals.mean())
             std_val = float(series_vals.std())
