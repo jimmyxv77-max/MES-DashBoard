@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **常驻数据清洗提示横幅**：将一闪而过的气泡提示升级为页面顶部常驻醒目提示，清晰汇报修正数量及放行的分切来料过多记录。
-        - **精准识别 `too much` 数值列**：自动扫描含 `too much` 的不良数值列，精确放行分切碾压来料过多的真实异常。
-        - **单日投入产出与良率组合图**：延续双轴组合视图、稳健目标线算法及横向责任排行。
+        - **稳健目标线算法再次优化**：彻底修复不良率极低、零值过多导致的目标线计算异常问题，改用稳健均值加标准差上限合理定义，确保目标线回归正常范围。
+        - **单日良率双轴组合图**：保留投入产出柱状图与良率折线组合视图。
+        - **其他核心功能**：分切 `too much` 异常放行、横向责任排行及常驻清洗提示全部完美保留。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -96,8 +96,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Persistent Data Cleaning Banner**: Replaced transient toasts with a prominent persistent status banner detailing fixed rows and preserved 'too much' slitting records.
-        - **Column-Level 'too much' Detection**: Scans both numeric defect columns and text columns for 'too much' anomalies.
+        - **Robust Target Line Refinement**: Fixed outlier/zero-inflation skewness for defect rate target calculation, ensuring sensible default thresholds.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -225,10 +224,8 @@ preserved_too_much_count = 0
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
     
-    # 判断是否属于涂布工序
     is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(False, index=df.index)
     
-    # 全面检查是否存在 "too much" 真实异常（既检查文本列包含 too much，也检查列名含 too much 且数值 > 0）
     has_too_much = pd.Series(False, index=df.index)
     for col_c in df.columns:
         if "too much" in col_c.lower() or "toomuch" in col_c.lower():
@@ -237,7 +234,6 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
         elif df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
-    # 需要执行自动修正的行：投入 < 产出，且（属于涂布工序 OR 不含 too much 真实来料过多异常）
     fixable_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
     preserved_mask = raw_abnormal_mask & (~fixable_mask)
 
@@ -253,7 +249,6 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
             df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
             df.loc[fixable_mask & (df["INQty"] <= 0), "FPY"] = 0.0
 
-# 在页面顶部展示常驻醒目的数据清洗与校验报告
 if fixed_count > 0 or preserved_too_much_count > 0:
     if curr_lang == "zh":
         msg_parts = []
@@ -424,7 +419,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图 =================
+# ================= 9. 动态单项不良变化推移图（稳健目标线算法：安全过滤与合理兜底） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -458,6 +453,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
+            # --- 🛠️ 稳健目标线计算修正：针对零值偏态数据采用稳健基准 ---
             raw_series = daily_defect_agg[y_col].dropna()
             if not raw_series.empty:
                 init_mean = raw_series.mean()
@@ -467,11 +463,13 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 if robust_series.empty:
                     robust_series = raw_series
                 
-                robust_mean = robust_series.mean()
-                robust_std = robust_series.std()
-                sigma_default = max(0.0, robust_mean - 1.0 * (robust_std if not np.isnan(robust_std) else 0.0))
-                if sigma_default == 0:
-                    sigma_default = max(0.01, robust_mean * 0.5)
+                r_mean = robust_series.mean()
+                r_std = robust_series.std()
+                # 如果大部分是0或者均值很小，采用稳健保护下限，避免减出怪异大数或负数
+                if r_mean < 1.0:
+                    sigma_default = max(0.01, r_mean + 0.5 * (r_std if not np.isnan(r_std) else 0.1))
+                else:
+                    sigma_default = max(0.0, r_mean - 1.0 * (r_std if not np.isnan(r_std) else 0.0))
             else:
                 sigma_default = 0.01
 
@@ -539,11 +537,12 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 if robust_series.empty:
                     robust_series = raw_series
                 
-                robust_mean = robust_series.mean()
-                robust_std = robust_series.std()
-                sigma_default = max(0.0, robust_mean - 1.0 * (robust_std if not np.isnan(robust_std) else 0.0))
-                if sigma_default == 0:
-                    sigma_default = max(0.01, robust_mean * 0.5)
+                r_mean = robust_series.mean()
+                r_std = robust_series.std()
+                if r_mean < 1.0:
+                    sigma_default = max(0.01, r_mean + 0.5 * (r_std if not np.isnan(r_std) else 0.1))
+                else:
+                    sigma_default = max(0.0, r_mean - 1.0 * (r_std if not np.isnan(r_std) else 0.0))
             else:
                 sigma_default = 0.01
 
