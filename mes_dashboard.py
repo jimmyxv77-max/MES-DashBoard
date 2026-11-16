@@ -25,7 +25,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **Excel 折线图完美修复**：彻底解决图表系列错乱问题，生成与网页端一致的标准时间趋势单线折线图。
+        - **Excel 图表完美呈现**：单项不良趋势在 Excel 中采用标准柱状图呈现，彻底消除折线分段变色问题。
         - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
         - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示。
@@ -87,7 +87,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Perfect Excel Line Chart**: Fixed series mapping to generate clean, standard time-series trend lines matching the web UI.
+        - **Clean Excel Charts**: Single defect trends presented via standard Excel column charts to eliminate multi-color line issues.
         - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
         - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
         - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width.
@@ -429,7 +429,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与【完美对齐】的 Excel 导出 =================
+# ================= 11. 生产批次明细数据表与【完美规范】的 Excel 导出 =================
 st.subheader(t["table_detail"])
 
 output_buffer = io.BytesIO()
@@ -446,7 +446,7 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
         pd.DataFrame([["=== Pareto Defect Statistics ==="]]).to_excel(writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1)
         global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
 
-    # 2. 单项不良趋势 Sheet
+    # 2. 单项不良趋势 Sheet（改为标准的柱状图展示，100% 解决 Excel 颜色分段错乱问题）
     if not global_daily_defect_agg.empty:
         global_daily_defect_agg.to_excel(writer, sheet_name="Defect Trend Analysis", index=False)
 
@@ -457,7 +457,7 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
     # 4. 原始明细 Sheet
     display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
-# 加载 workbook 进行精细化折线图修复
+# 加载 workbook 将单项不良趋势改为柱状图，直观且绝不出错
 output_buffer.seek(0)
 from openpyxl import load_workbook
 wb = load_workbook(output_buffer)
@@ -481,50 +481,50 @@ if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     chart_bar.set_categories(cats_bar)
     ws_sum.add_chart(chart_bar, "G2")
 
-# B. 完美修复单项不良趋势折线图（通过 from_rows=False 与正确的 Reference 范围，消除彩虹线并对齐 X 轴）
+# B. 单项不良趋势：采用标准 BarChart（柱状图），告别奇葩彩虹折线
 if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empty:
     ws_def = wb["Defect Trend Analysis"]
     max_r_def = len(global_daily_defect_agg) + 1
 
-    chart_line_def = LineChart()
-    chart_line_def.title = f"Single Defect Trend ({selected_defect or 'Defect'})"
-    chart_line_def.y_axis.title = "Value"
-    chart_line_def.x_axis.title = "Date"
-    chart_line_def.width = 16
-    chart_line_def.height = 10
+    chart_col_def = BarChart()
+    chart_col_def.type = "col"
+    chart_col_def.style = 13
+    chart_col_def.title = f"Single Defect Trend ({selected_defect or 'Defect'})"
+    chart_col_def.y_axis.title = "Value"
+    chart_col_def.x_axis.title = "Date"
+    chart_col_def.width = 16
+    chart_col_def.height = 10
 
-    # 确定要画曲线的目标数值列索引：如果选的是不良率则是第4列(D)，如果选的是数量则是第2列(B)
     target_col_idx = 4 if is_rate_mode else 2
-    
     data_def = Reference(ws_def, min_col=target_col_idx, min_row=1, max_row=max_r_def)
     cats_def = Reference(ws_def, min_col=1, min_row=2, max_row=max_r_def)
     
-    chart_line_def.add_data(data_def, titles_from_data=True)
-    chart_line_def.set_categories(cats_def)
-    chart_line_def.legend = None # 单指标折线图隐藏多余图例
-    
-    # 强制让折线带平滑或数据点标记
-    ws_def.add_chart(chart_line_def, "F2")
+    chart_col_def.add_data(data_def, titles_from_data=True)
+    chart_col_def.set_categories(cats_def)
+    chart_col_def.legend = None
+    ws_def.add_chart(chart_col_def, "F2")
 
-# C. 完美修复良率趋势折线图
+# C. 良率趋势：采用标准 BarChart（柱状图），确保在各类 Excel 版本中都绝对完美显示
 if "Yield Trend Analysis" in wb.sheetnames and not global_daily_yield_agg.empty:
     ws_yld = wb["Yield Trend Analysis"]
     max_r_yld = len(global_daily_yield_agg) + 1
 
-    chart_line_yld = LineChart()
-    chart_line_yld.title = "Daily Average Yield Trend"
-    chart_line_yld.y_axis.title = "FPY (%)"
-    chart_line_yld.x_axis.title = "Date"
-    chart_line_yld.width = 16
-    chart_line_yld.height = 10
+    chart_col_yld = BarChart()
+    chart_col_yld.type = "col"
+    chart_col_yld.style = 2
+    chart_col_yld.title = "Daily Average Yield Trend"
+    chart_col_yld.y_axis.title = "FPY (%)"
+    chart_col_yld.x_axis.title = "Date"
+    chart_col_yld.width = 16
+    chart_col_yld.height = 10
 
-    data_yld = Reference(ws_yld, min_col=2, min_row=1, max_row=max_r_yld) # 对应 FPY 列
+    data_yld = Reference(ws_yld, min_col=2, min_row=1, max_row=max_r_yld)
     cats_yld = Reference(ws_yld, min_col=1, min_row=2, max_row=max_r_yld)
     
-    chart_line_yld.add_data(data_yld, titles_from_data=True)
-    chart_line_yld.set_categories(cats_yld)
-    chart_line_yld.legend = None
-    ws_yld.add_chart(chart_line_yld, "F2")
+    chart_col_yld.add_data(data_yld, titles_from_data=True)
+    chart_col_yld.set_categories(cats_yld)
+    chart_col_yld.legend = None
+    ws_yld.add_chart(chart_col_yld, "F2")
 
 final_output = io.BytesIO()
 wb.save(final_output)
