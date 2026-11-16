@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= 语言词典配置 (中/英) =================
+# ================= 语言词典配置 (中/英 100% 覆盖) =================
 LANG_DICT = {
     "zh": {
         "title": "📊 Tenpower electrode dashboard",
@@ -30,9 +30,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单项不良分机台图表新增机台筛选**：在单项不良的“按单卷明细推移”视图下同步加入机台多选筛选器，方便随时过滤排查特定机台。
-        - **不良数量模式自动隐藏目标线**：当单项不良选择数量统计时自动隐藏目标线。
-        - **全功能完美继承**：保留常驻清洗提示、分切 `too much` 异常放行及良率双轴组合图。
+        - **100% 全面国际化适配**：将责任归属排行区域、机台筛选标签全部纳入双语词典，切换英文后无任何中文残留。
+        - **双过滤与智能隐藏目标线**：单项不良和良率推移均支持机台多选筛选；数量模式自动隐藏目标线。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -72,6 +71,16 @@ LANG_DICT = {
         "m_rate": "不良率推移 (% 总投入)",
         "y_max_label": "🎚️ 单项不良 Y 轴上限：",
         "def_target_label": "🎯 单项不良目标线阈值设置：",
+        "rank_sel_def": "🎯 选择分析的不良项目：",
+        "rank_sel_dim": "📊 选择归属维度：",
+        "dim_machine": "MachineName (机台)",
+        "dim_person": "PersonName (操作者)",
+        "rank_chart_title_pre": "【",
+        "rank_chart_title_mid": "】按 ",
+        "rank_chart_title_suf": " 累计不良及占比排行",
+        "rank_xaxis": "不良数量合计 (Qty)",
+        "machine_filter_label": "🎛️ 选择要查看的机台（支持多选/全选）：",
+        "defect_machine_filter_label": "🎛️ 选择要追踪的不良机台（支持多选/全选）：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势",
@@ -96,8 +105,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Machine Filter for Single Defect Roll View**: Added a machine multi-select filter for the single defect roll-level trend chart.
-        - **Auto-hide Target Line for Defect Qty**: Target lines are automatically hidden for quantity metrics.
+        - **100% Internationalization**: Fully translated responsibility ranking and machine filters into English.
+        - **Flexible Filtering & Auto-hide Targets**: Machine multi-select filters and intelligent target line visibility.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -137,6 +146,16 @@ LANG_DICT = {
         "m_rate": "Defect Rate Trend (% of Input)",
         "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
         "def_target_label": "🎯 Single Defect Target Threshold:",
+        "rank_sel_def": "🎯 Select Defect Item:",
+        "rank_sel_dim": "📊 Select Dimension:",
+        "dim_machine": "MachineName",
+        "dim_person": "PersonName",
+        "rank_chart_title_pre": "[",
+        "rank_chart_title_mid": "] Cumulative Defect & Share by ",
+        "rank_chart_title_suf": "",
+        "rank_xaxis": "Total Defect Qty",
+        "machine_filter_label": "🎛️ Select Machine(s) to View:",
+        "defect_machine_filter_label": "🎛️ Select Defect Machine(s) to Track:",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
@@ -420,7 +439,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（数量模式自动隐藏目标线，分机台模式支持机台过滤） =================
+# ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -437,12 +456,11 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
     is_rate_mode = t["m_rate"] in defect_metric_mode
     is_roll_mode = t["view_roll"] in defect_view_mode
 
-    # 如果是分机台明细模式，增加机台多选筛选器
     if is_roll_mode:
         all_defect_machines = sorted(defect_trend_df["MachineName"].dropna().astype(str).unique().tolist()) if "MachineName" in defect_trend_df.columns else []
         if all_defect_machines:
             selected_defect_machines = st.multiselect(
-                "🎛️ 选择要追踪的不良机台（支持多选/全选）：",
+                t["defect_machine_filter_label"],
                 options=all_defect_machines,
                 default=all_defect_machines,
                 key="defect_machine_multiselect"
@@ -452,7 +470,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
     if not defect_trend_df.empty:
         if not is_roll_mode:
-            # 颗粒度 1：按单日汇总趋势
             defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
             daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
                 selected_defect: "sum",
@@ -541,7 +558,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             st.plotly_chart(fig_def, use_container_width=True)
 
         else:
-            # 颗粒度 2：按单卷明细推移（分机台）
             roll_df = defect_trend_df.copy()
             roll_df["DefectRatePercent"] = np.where(
                 roll_df["INQty"] > 0, 
@@ -630,17 +646,17 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 9.1 单项不良责任归属快速对比（横向柱状排行） =================
+# ================= 9.1 单项不良责任归属快速对比（100% 国际化） =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
     rank_col1, rank_col2 = st.columns([1.5, 1.5])
     with rank_col1:
-        rank_selected_defect = st.selectbox("🎯 选择分析的不良项目：", current_active_defects, key="rank_def_sel")
+        rank_selected_defect = st.selectbox(t["rank_sel_def"], current_active_defects, key="rank_def_sel")
     with rank_col2:
-        rank_dimension = st.selectbox("📊 选择归属维度：", ["MachineName (机台)", "PersonName (操作者)"], key="rank_dim_sel")
+        rank_dimension_option = st.selectbox(t["rank_sel_dim"], [t["dim_machine"], t["dim_person"]], key="rank_dim_sel")
 
-    dim_field = "MachineName" if "MachineName" in rank_dimension else "PersonName"
+    dim_field = "MachineName" if t["dim_machine"] in rank_dimension_option else "PersonName"
     if dim_field in display_df.columns:
         rank_df = display_df.groupby(dim_field, as_index=False).agg({
             rank_selected_defect: "sum",
@@ -656,6 +672,7 @@ if current_active_defects and len(display_df) > 0:
         
         rank_df = rank_df.sort_values(rank_selected_defect, ascending=True)
 
+        chart_title_text = f"{t['rank_chart_title_pre']}{rank_selected_defect}{t['rank_chart_title_mid']}{dim_field}{t['rank_chart_title_suf']}"
         fig_rank = px.bar(
             rank_df,
             x=rank_selected_defect,
@@ -664,11 +681,11 @@ if current_active_defects and len(display_df) > 0:
             text=rank_df.apply(lambda row: f"{row[rank_selected_defect]:,.1f} ({row['SharePercent']:.1f}%)", axis=1),
             color=rank_selected_defect,
             color_continuous_scale="Reds",
-            title=f"【{rank_selected_defect}】按 {dim_field} 累计不良及占比排行"
+            title=chart_title_text
         )
         fig_rank.update_traces(textposition="outside")
         fig_rank.update_layout(
-            xaxis=dict(title="不良数量合计 (Qty)", range=[0, max(1.0, rank_df[rank_selected_defect].max() * 1.30)]),
+            xaxis=dict(title=t["rank_xaxis"], range=[0, max(1.0, rank_df[rank_selected_defect].max() * 1.30)]),
             yaxis=dict(title=dim_field),
             coloraxis_showscale=False,
             height=400,
@@ -676,11 +693,11 @@ if current_active_defects and len(display_df) > 0:
         )
         st.plotly_chart(fig_rank, use_container_width=True)
     else:
-        st.warning(f"⚠️ 当前数据源中未检测到列 **{dim_field}**，无法生成责任归属排行。")
+        st.warning(f"⚠️ Column **{dim_field}** not found in dataset." if curr_lang=="en" else f"⚠️ 当前数据源中未检测到列 **{dim_field}**，无法生成责任归属排行。")
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（含机台过滤控件） =================
+# ================= 10. 良率推移趋势专区 =================
 st.subheader(t["yield_trend_header"])
 
 st.markdown(f"**{t['target_header']}**")
@@ -706,14 +723,13 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # --- 1. 各机台单卷良率推移走势（含机台筛选器） ---
         st.markdown(f"**{t['t_m_trend']}**")
         
         all_machines = sorted(trend_raw_df["MachineName"].dropna().astype(str).unique().tolist()) if "MachineName" in trend_raw_df.columns else []
         
         if all_machines:
             selected_machines = st.multiselect(
-                "🎛️ 选择要查看的机台（支持多选/全选）：",
+                t["machine_filter_label"],
                 options=all_machines,
                 default=all_machines,
                 key="trend_machine_multiselect"
@@ -747,7 +763,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- 2. 单日投入产出柱状图 + 单日平均良率折线组合图 ---
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
