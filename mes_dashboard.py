@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import io
+from openpyxl.chart import BarChart, Reference
 
 # 1. 页面基本配置
 st.set_page_config(
@@ -21,14 +22,14 @@ LANG_DICT = {
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表（支持前缀为 **MesResume_DoMethod** 的各类带后缀文件名）以生成实时看板。",
         "export_header": "📥 报告导出",
-        "btn_export": "📥 导出看板图表汇总报表 (Excel)",
+        "btn_export": "📥 导出带图表的汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **图表数据一键导出**：一键导出包含核心 KPI 摘要与帕累托异常图表统计的汇总 Excel 报表。
+        - **Excel 内置图表导出**：导出的 Excel 汇总表内嵌原生柱状图，直观展示不良数量。
+        - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
-        - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示，告别横向滚动。
-        - **质量目标线调优**：良率目标线默认值升级为 **99.0%**（支持 60%~100% 自由拖动）。
-        - **双语无缝切换**：右上角可随时切换中英文。
+        - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示。
+        - **质量目标线调优**：默认值升级为 **99.0%**（支持 60%~100% 自由拖动）。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -86,11 +87,11 @@ LANG_DICT = {
         "btn_export": "📥 Export Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Chart Data Export**: Export Excel reports containing core KPI summaries and Pareto defect chart statistics.
+        - **Excel Native Chart Export**: Embedded bar chart for direct visual inspection of defect quantities.
+        - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
         - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
-        - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width with zero horizontal scrolling.
+        - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width.
         - **Target Line Tuning**: Default yield target upgraded to **99.0%** (adjustable from 60% to 100%).
-        - **Bilingual Switch**: Instant CN/EN toggle via top-right selector.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -153,7 +154,7 @@ st.title(t["title"])
 st.markdown(f"*{t['author']}*")
 st.markdown("---")
 
-# 2. 侧边栏：文件拖拽上传区与版本更新说明
+# 2. 侧边栏：文件导入区
 st.sidebar.header(t["import_header"])
 uploaded_file = st.sidebar.file_uploader(
     t["import_help"],
@@ -161,12 +162,12 @@ uploaded_file = st.sidebar.file_uploader(
     help=t["import_help"]
 )
 
-# 在侧边栏下方常驻显示更新日志
-st.sidebar.markdown("---")
-st.sidebar.markdown(t["changelog_text"])
-
 if uploaded_file is None:
     st.info(t["import_info"])
+    # 引导页展示版本更新说明
+    st.markdown("---")
+    st.markdown(f"### {t['changelog_title']}")
+    st.markdown(t["changelog_text"])
     st.stop()
 
 file_name = uploaded_file.name
@@ -246,7 +247,7 @@ for col in all_columns:
         df[col] = converted.fillna(0)
         DYNAMIC_DEFECT_COLS.append(col)
 
-# ================= 6. 侧边栏筛选器 =================
+# ================= 6. 侧边栏筛选器（主次分明：筛选在最上方，更新说明沉底） =================
 st.sidebar.header(t["sidebar_filter"])
 
 search_keyword = st.sidebar.text_input(
@@ -282,6 +283,10 @@ if search_keyword:
 show_only_abnormal = st.sidebar.checkbox(t["chk_abnormal"], value=False)
 if show_only_abnormal and has_fpy:
     display_df = display_df[display_df["FPY"] < 95.0]
+
+# 将版本更新说明沉到侧边栏最底部，主次分明
+st.sidebar.markdown("---")
+st.sidebar.markdown(t["changelog_text"])
 
 # 7. 核心指标展示 (KPI Cards)
 total_in_qty = display_df["INQty"].sum() if "INQty" in display_df.columns else 0
@@ -421,7 +426,7 @@ if current_active_defects and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 8.3 异常数量与双维度比例对照表（全宽干净表头）
+        # 8.3 异常数量与双维度比例对照表
         st.markdown(f"**{t['table_header']}**")
         stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
         st.dataframe(
@@ -570,7 +575,6 @@ st.markdown("---")
 # ================= 10. 良率推移趋势专区（默认目标值设为 99.0%） =================
 st.subheader(t["yield_trend_header"])
 
-# 质量目标线滑块直接放在良率分析下方（范围 60.0% ~ 100.0%，默认值设为 99.0%）
 st.markdown(f"**{t['target_header']}**")
 target_col1, target_col2 = st.columns(2, gap="large")
 with target_col1:
@@ -594,7 +598,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # 第一行：单卷良率推移图（独占全宽）
         st.markdown(f"**{t['t_m_trend']}**")
         fig_machine_trend = px.line(
             trend_raw_df,
@@ -622,7 +625,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 第二行：单日平均良率推移图（独占全宽）
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
@@ -666,13 +668,12 @@ else:
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与图表汇总 Excel 导出 =================
+# ================= 11. 生产批次明细数据表与【内嵌图表】的 Excel 导出 =================
 st.subheader(t["table_detail"])
 
-# 准备一键导出 Excel 的内存流打包逻辑（聚焦于图表汇总数据与核心指标）
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-    # 1. 汇总 Sheet: 核心 KPI 摘要与帕累托异常图表统计
+    # 1. 汇总 Sheet
     summary_kpi_data = pd.DataFrame({
         "Metric Item": [
             "Total Production Batches (总生产卷数)", 
@@ -692,18 +693,49 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
     summary_kpi_data.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=0)
     
     if not global_defect_sums.empty:
-        # 写入空行作为分隔，再写入帕累托图表统计数据
         start_row_pareto = len(summary_kpi_data) + 3
-        # 写入一个小标题行
         pd.DataFrame([["=== Pareto Defect Chart & Dual-Dimension Statistics ==="]]).to_excel(
             writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1
         )
         global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
 
-    # 2. 原始明细 Sheet (保留给需要查阅底表的场景)
+    # 2. 原始明细 Sheet
     display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
-excel_data = output_buffer.getvalue()
+# 获取 workbook 并利用 openpyxl 在汇总表中自动内嵌一幅“不良数量柱状图”
+output_buffer.seek(0)
+from openpyxl import load_workbook
+wb = load_workbook(output_buffer)
+
+if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
+    ws = wb["Dashboard Summary"]
+    start_r = len(summary_kpi_data) + 4 # 对应 Defect Qty 数据开始的行
+    max_r = start_r + len(global_defect_sums) - 1
+
+    chart = BarChart()
+    chart.type = "col"
+    chart.style = 10
+    chart.title = "Defect Quantity Pareto Chart (不良数量柱状图)"
+    chart.y_axis.title = "Defect Qty (数量)"
+    chart.x_axis.title = "Defect Item (不良项目)"
+    chart.width = 18
+    chart.height = 10
+
+    # 数据源：B列（Defect Qty，从标题行到结尾）
+    data = Reference(ws, min_col=2, min_row=start_r-1, max_row=max_r)
+    # X轴分类标签：A列（Defect Item）
+    cats = Reference(ws, min_col=1, min_row=start_r, max_row=max_r)
+    
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+    
+    # 将图表放置在 E2 单元格位置
+    ws.add_chart(chart, "E2")
+
+# 重新保存到新的内存流
+final_output = io.BytesIO()
+wb.save(final_output)
+excel_data = final_output.getvalue()
 
 # 在明细表上方右侧放置下载按钮
 export_col1, export_col2 = st.columns([3, 1])
@@ -711,7 +743,7 @@ with export_col2:
     st.download_button(
         label=t["btn_export"],
         data=excel_data,
-    file_name="Tenpower_Electrode_Chart_Summary_Report.xlsx",
+        file_name="Tenpower_Electrode_Chart_Summary_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
