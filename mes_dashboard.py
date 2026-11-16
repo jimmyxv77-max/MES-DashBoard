@@ -30,10 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单项不良 Y 轴上限调节恢复**：重新加入单项不良统计的 Y 轴上限自定义输入框，支持自由缩放观察。
-        - **图表文案极简优化**：移除了图表注释中的数学符号，统一直观显示为“目标线”。
-        - **智能默认目标线**：采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)** 动态计算。
-        - **单位与坐标全面统一**：单项不良率推移采用百分比（%）单位，坐标轴与提示完美带上 `%`。
+        - **分切碾压异常智能放行**：优化数据清洗逻辑，对分切工序中名称含 `too much` 等碾压来料过多的真实异常进行智能保留，不予错误剔除。
+        - **新增多维度协同对比图**：新增独立的“单项不良多维度协同对比分析”图表，支持按机台或操作者分组横向对比。
+        - **核心功能完美继承**：保留原单项不良推移、Y轴上限调节、智能 Mean-1Sigma 目标线及百分比单位。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -63,6 +62,7 @@ LANG_DICT = {
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
         "defect_trend_header": "🔍 单项不良变化推移图",
+        "defect_multi_header": "📊 单项不良多维度协同对比分析（机台/操作者关联性判定）",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -92,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Single Defect Y-Axis Upper Limit Restored**: Re-added Y-axis upper limit input control.
-        - **Streamlined UI Text**: Removed mathematical notations from chart annotations.
+        - **Smart Slitting Over-input Preservation**: Retains legitimate over-input anomalies containing 'too much' during slitting.
+        - **New Multi-Dimensional Comparison Chart**: Added independent cross-comparison by machine or operator.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -123,6 +123,7 @@ LANG_DICT = {
         "col_s_in": "Input Loss Rate",
         "col_cum": "Cum. Share",
         "defect_trend_header": "🔍 Single Defect Trend Analysis",
+        "defect_multi_header": "📊 Single Defect Multi-Dimensional Comparison",
         "def_sel": "🎯 1. Select Defect Item:",
         "def_view": "📊 2. Select View Granularity:",
         "view_daily": "Daily Summary Trend",
@@ -199,7 +200,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 核心数据逻辑验证与自动修正 =================
+# ================= 4. 增强型数据清洗与逻辑闭环验证 =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -211,19 +212,33 @@ if has_fpy:
         df["FPY"] = df["FPY"] * 100.0
 
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
-    abnormal_mask = df["INQty"] < df["OutQty"]
-    fixed_count = int(abnormal_mask.sum())
+    raw_abnormal_mask = df["INQty"] < df["OutQty"]
+    
+    # 业务闭环判断：
+    # 1. 如果是涂布工序（ProcessName 包含 coating 或涂布），直接严格修正
+    # 2. 如果是分切工序或含有 "too much" 等碾压过量关键字的真实异常，予以保留不剔除
+    is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(True, index=df.index)
+    
+    # 检查是否有批次名称或异常明细包含 "too much" 关键字
+    has_too_much = pd.Series(False, index=df.index)
+    for col_c in df.columns:
+        if df[col_c].dtype == object:
+            has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
+
+    # 实际需要修正的异常行：输入小于输出，且（属于涂布工序 OR 不包含 too much 真实碾压过量异常）
+    fixable_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
+    fixed_count = int(fixable_mask.sum())
 
     if fixed_count > 0:
-        df.loc[abnormal_mask, "OutQty"] = df.loc[abnormal_mask, "INQty"] - df.loc[abnormal_mask, "ScrapQty"]
+        df.loc[fixable_mask, "OutQty"] = df.loc[fixable_mask, "INQty"] - df.loc[fixable_mask, "ScrapQty"]
         df.loc[df["OutQty"] < 0, "OutQty"] = 0
         
         if has_fpy:
-            valid_in = abnormal_mask & (df["INQty"] > 0)
+            valid_in = fixable_mask & (df["INQty"] > 0)
             df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
-            df.loc[abnormal_mask & (df["INQty"] <= 0), "FPY"] = 0.0
+            df.loc[fixable_mask & (df["INQty"] <= 0), "FPY"] = 0.0
 
-        st.toast(f"🛠️ Data auto-cleaned: Fixed {fixed_count} records where INQty < OutQty.", icon="✅")
+        st.toast(f"🛠️ Data auto-cleaned: Fixed {fixed_count} standard input/output discrepancies (Preserved legitimate 'too much' slitting anomalies).", icon="✅")
 else:
     fixed_count = 0
 
@@ -381,7 +396,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（恢复 Y 轴上限设置控件） =================
+# ================= 9. 动态单项不良变化推移图（原功能完整保留） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -399,7 +414,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
     if not defect_trend_df.empty:
         if t["view_daily"] in defect_view_mode:
-            # 颗粒度 1：按单日汇总趋势
             defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
             daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
                 selected_defect: "sum",
@@ -428,7 +442,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
             
-            # 引入控制面板：目标线设置 + Y 轴上限设置
             adj_col1, adj_col2, adj_col3 = st.columns([1, 1, 2])
             with adj_col1:
                 if locked_val is not None:
@@ -440,6 +453,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         min_value=0.0,
                         max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
                         value=float(round(sigma_default, 2)),
+                        key="target_input_main",
                         step=0.01 if is_rate_mode else 1.0
                     )
             with adj_col2:
@@ -448,6 +462,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     min_value=0.01 if is_rate_mode else 1.0,
                     max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
                     value=float(max(auto_max, target_defect_val * 1.2)),
+                    key="ymax_input_main",
                     step=0.1 if is_rate_mode else 10.0
                 )
 
@@ -468,7 +483,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             st.plotly_chart(fig_def, use_container_width=True)
 
         else:
-            # 颗粒度 2：按单卷明细推移（分机台）
             roll_df = defect_trend_df.copy()
             roll_df["DefectRatePercent"] = np.where(
                 roll_df["INQty"] > 0, 
@@ -485,7 +499,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             if sigma_default == 0:
                 sigma_default = max(0.01, mean_val * 0.5)
 
-            auto_max = float(series_vals.max()) if not series_vals.empty else 1.0
+            auto_max = float(series_vals.max()) if not roll_df.empty else 1.0
             auto_max = max(sigma_default * 1.5, auto_max * 1.25)
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
@@ -501,6 +515,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         min_value=0.0,
                         max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
                         value=float(round(sigma_default, 2)),
+                        key="target_input_roll",
                         step=0.01 if is_rate_mode else 1.0
                     )
             with adj_col2:
@@ -509,6 +524,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     min_value=0.01 if is_rate_mode else 1.0,
                     max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
                     value=float(max(auto_max, target_defect_val * 1.2)),
+                    key="ymax_input_roll",
                     step=0.1 if is_rate_mode else 10.0
                 )
 
@@ -533,6 +549,59 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 height=430
             )
             st.plotly_chart(fig_def, use_container_width=True)
+
+st.markdown("---")
+
+# ================= 9.1 新增：单项不良多维度协同对比分析图（机台/操作者关联性判定） =================
+st.subheader(t["defect_multi_header"])
+
+if current_active_defects and len(display_df) > 0:
+    multi_col1, multi_col2, multi_col3 = st.columns([1.2, 1.2, 1.2])
+    with multi_col1:
+        multi_selected_defect = st.selectbox("🎯 选择对比的不良项目：", current_active_defects, key="multi_def_sel")
+    with multi_col2:
+        compare_dimension = st.selectbox("📊 选择对比维度：", ["MachineName (机台)", "PersonName (操作者)"], key="multi_dim_sel")
+    with multi_col3:
+        multi_metric_mode = st.radio("📐 选择统计口径：", ["不良数量汇总", "不良率 (% 总投入)"], horizontal=True, key="multi_metric_sel")
+
+    dim_col = "MachineName" if "MachineName" in compare_dimension else "PersonName"
+    if dim_col in display_df.columns:
+        multi_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
+        multi_df["DayStr"] = multi_df["TestDate"].dt.strftime("%Y-%m-%d")
+        
+        is_multi_rate = "不良率" in multi_metric_mode
+        
+        # 按 日期 + 对比维度 进行聚合
+        multi_agg = multi_df.groupby(["DayStr", dim_col], as_index=False).agg({
+            multi_selected_defect: "sum",
+            "INQty": "sum"
+        }).sort_values("DayStr")
+
+        multi_agg["DefectRatePercent"] = np.where(
+            multi_agg["INQty"] > 0, 
+            (multi_agg[multi_selected_defect] / multi_agg["INQty"]) * 100.0, 
+            0.0
+        )
+
+        y_multi_col = "DefectRatePercent" if is_multi_rate else multi_selected_defect
+        y_multi_title = f"{multi_selected_defect} (%)" if is_multi_rate else f"{multi_selected_defect} (Qty)"
+
+        fig_multi = px.line(
+            multi_agg,
+            x="DayStr",
+            y=y_multi_col,
+            color=dim_col,
+            markers=True,
+            title=f"{multi_selected_defect} - {dim_col} Comparison Analysis"
+        )
+        fig_multi.update_layout(
+            xaxis=dict(type="category", tickangle=-35, title=t["x_date"]),
+            yaxis=dict(title=y_multi_title),
+            height=450
+        )
+        st.plotly_chart(fig_multi, use_container_width=True)
+    else:
+        st.warning(f"⚠️ 当前数据源中未检测到列 **{dim_col}**，无法进行该维度的对比。")
 
 st.markdown("---")
 
