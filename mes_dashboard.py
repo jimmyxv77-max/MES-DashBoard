@@ -37,9 +37,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **图例遮挡完美修复**：单日组合图的图例已调整至图表上方正中，彻底避免与右上角控件图标重叠。
+        - **悬浮提示增加卷号 (BatchNo)**：单卷良率推移图的悬浮提示中现已完整展示卷号信息，方便异常快速追溯。
+        - **图例遮挡已优化**：组合图图例位于顶部正中。
         - **底部独立明细反馈**：保留底部涂布修正与分切来料多放行明细表格。
-        - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -113,7 +113,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Legend Overlap Fixed**: Combo chart legend repositioned to top center to prevent control bar overlap.
+        - **BatchNo Added to Hover**: Roll yield trend chart tooltips now include BatchNo for easy traceability.
+        - **Legend Overlap Fixed**: Combo chart legend repositioned to top center.
         - **Bottom Detail Tables**: Retained dedicated detail tables at the bottom.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
@@ -790,12 +791,16 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
         else:
             filtered_trend_df = trend_raw_df
 
+        # 🛠️ 关键修改：将 BatchNo 引入悬浮提示 (hover_data) 中，悬浮时直接显示卷号
+        hover_data_cols = ["BatchNo"] if "BatchNo" in filtered_trend_df.columns else []
+        
         fig_machine_trend = px.line(
             filtered_trend_df,
             x="TestDate",
             y="FPY",
             color="MachineName" if "MachineName" in filtered_trend_df.columns else None,
-            markers=True
+            markers=True,
+            hover_data=hover_data_cols
         )
         target_label_m = f"Target: {target_fpy_machine}%" if curr_lang=="en" else f"目标线: {target_fpy_machine}%"
         fig_machine_trend.add_hline(
@@ -901,7 +906,6 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
                 range=[custom_fpy_min, 100.8],
                 showgrid=False
             ),
-            # 🛠️ 关键修复：将图例移至图表上方正中央，水平横向排列，避开右上角工具栏控件图标
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
