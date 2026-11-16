@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import io
-from openpyxl.chart import BarChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 
 # 1. 页面基本配置
 st.set_page_config(
@@ -22,10 +22,10 @@ LANG_DICT = {
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表（支持前缀为 **MesResume_DoMethod** 的各类带后缀文件名）以生成实时看板。",
         "export_header": "📥 报告导出",
-        "btn_export": "📥 导出带图表的汇总报表 (Excel)",
+        "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **Excel 内置图表导出**：导出的 Excel 汇总表内嵌原生柱状图，直观展示不良数量。
+        - **全图表 Excel 导出**：导出的 Excel 报表全面覆盖帕累托统计、单项不良推移及良率趋势，并内嵌原生柱状图与折线图。
         - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
         - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示。
@@ -84,10 +84,10 @@ LANG_DICT = {
         "import_help": "Drag and drop your MES production data table here (supports MesResume_DoMethod prefix)",
         "import_info": "👈 Please drag or select your MES production data table in the sidebar (supporting files prefixed with **MesResume_DoMethod**) to generate the live dashboard.",
         "export_header": "📥 Report Export",
-        "btn_export": "📥 Export Chart Summary Report (Excel)",
+        "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Excel Native Chart Export**: Embedded bar chart for direct visual inspection of defect quantities.
+        - **All-Chart Excel Export**: Export comprehensive reports covering Pareto stats, defect trends, and yield trends with native charts embedded.
         - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
         - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
         - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width.
@@ -164,7 +164,6 @@ uploaded_file = st.sidebar.file_uploader(
 
 if uploaded_file is None:
     st.info(t["import_info"])
-    # 引导页展示版本更新说明
     st.markdown("---")
     st.markdown(f"### {t['changelog_title']}")
     st.markdown(t["changelog_text"])
@@ -284,7 +283,7 @@ show_only_abnormal = st.sidebar.checkbox(t["chk_abnormal"], value=False)
 if show_only_abnormal and has_fpy:
     display_df = display_df[display_df["FPY"] < 95.0]
 
-# 将版本更新说明沉到侧边栏最底部，主次分明
+# 将版本更新说明沉到侧边栏最底部
 st.sidebar.markdown("---")
 st.sidebar.markdown(t["changelog_text"])
 
@@ -322,6 +321,8 @@ current_active_defects = [c for c in DYNAMIC_DEFECT_COLS if c in display_df.colu
 st.subheader(t["pareto_header"])
 
 global_defect_sums = pd.DataFrame()
+global_daily_defect_agg = pd.DataFrame()
+global_daily_yield_agg = pd.DataFrame()
 
 if current_active_defects and len(display_df) > 0:
     defect_sums = display_df[current_active_defects].sum().reset_index()
@@ -449,6 +450,7 @@ st.markdown("---")
 # ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
 
+selected_defect = None
 if current_active_defects and "TestDate" in display_df.columns and len(display_df) > 0:
     ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.1, 1.3, 1.1])
     with ctrl_col1:
@@ -510,6 +512,8 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 0.0
             )
             
+            global_daily_defect_agg = daily_defect_agg.copy()
+
             y_col = "DefectRate" if is_rate_mode else selected_defect
             y_label = f"{selected_defect} Daily Rate (%)" if curr_lang=="en" else f"{selected_defect} 单日不良率 (%)" if is_rate_mode else f"{selected_defect} 单日累计数量"
             text_labels = daily_defect_agg[y_col].apply(
@@ -629,6 +633,8 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
         daily_agg = daily_df.groupby("DayStr", as_index=False)["FPY"].mean().sort_values("DayStr")
+        
+        global_daily_yield_agg = daily_agg.copy()
 
         fig_date_trend = px.line(
             daily_agg,
@@ -668,12 +674,12 @@ else:
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与【内嵌图表】的 Excel 导出 =================
+# ================= 11. 生产批次明细数据表与【全图表内嵌】的 Excel 导出 =================
 st.subheader(t["table_detail"])
 
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-    # 1. 汇总 Sheet
+    # 1. 汇总与帕累托 Sheet
     summary_kpi_data = pd.DataFrame({
         "Metric Item": [
             "Total Production Batches (总生产卷数)", 
@@ -699,40 +705,80 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
         )
         global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
 
-    # 2. 原始明细 Sheet
+    # 2. 单项不良趋势 Sheet
+    if not global_daily_defect_agg.empty:
+        global_daily_defect_agg.to_excel(writer, sheet_name="Defect Trend Analysis", index=False)
+
+    # 3. 良率推移趋势 Sheet
+    if not global_daily_yield_agg.empty:
+        global_daily_yield_agg.to_excel(writer, sheet_name="Yield Trend Analysis", index=False)
+
+    # 4. 原始明细 Sheet
     display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
-# 获取 workbook 并利用 openpyxl 在汇总表中自动内嵌一幅“不良数量柱状图”
+# 获取 workbook 并通过 openpyxl 在各个 Sheet 中自动内嵌原生图表
 output_buffer.seek(0)
 from openpyxl import load_workbook
 wb = load_workbook(output_buffer)
 
+# A. 在 Dashboard Summary 中嵌入帕累托柱状图
 if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
-    ws = wb["Dashboard Summary"]
-    start_r = len(summary_kpi_data) + 4 # 对应 Defect Qty 数据开始的行
+    ws_sum = wb["Dashboard Summary"]
+    start_r = len(summary_kpi_data) + 4
     max_r = start_r + len(global_defect_sums) - 1
 
-    chart = BarChart()
-    chart.type = "col"
-    chart.style = 10
-    chart.title = "Defect Quantity Pareto Chart (不良数量柱状图)"
-    chart.y_axis.title = "Defect Qty (数量)"
-    chart.x_axis.title = "Defect Item (不良项目)"
-    chart.width = 18
-    chart.height = 10
+    chart_bar = BarChart()
+    chart_bar.type = "col"
+    chart_bar.style = 10
+    chart_bar.title = "Defect Quantity Pareto Chart (不良数量分布图)"
+    chart_bar.y_axis.title = "Defect Qty (数量)"
+    chart_bar.x_axis.title = "Defect Item (不良项目)"
+    chart_bar.width = 16
+    chart_bar.height = 10
 
-    # 数据源：B列（Defect Qty，从标题行到结尾）
-    data = Reference(ws, min_col=2, min_row=start_r-1, max_row=max_r)
-    # X轴分类标签：A列（Defect Item）
-    cats = Reference(ws, min_col=1, min_row=start_r, max_row=max_r)
-    
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(cats)
-    
-    # 将图表放置在 E2 单元格位置
-    ws.add_chart(chart, "E2")
+    data_bar = Reference(ws_sum, min_col=2, min_row=start_r-1, max_row=max_r)
+    cats_bar = Reference(ws_sum, min_col=1, min_row=start_r, max_row=max_r)
+    chart_bar.add_data(data_bar, titles_from_data=True)
+    chart_bar.set_categories(cats_bar)
+    ws_sum.add_chart(chart_bar, "E2")
 
-# 重新保存到新的内存流
+# B. 在 Defect Trend Analysis 中嵌入单项不良趋势折线图
+if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empty:
+    ws_def = wb["Defect Trend Analysis"]
+    max_r_def = len(global_daily_defect_agg) + 1
+
+    chart_line_def = LineChart()
+    chart_line_def.title = f"Single Defect Trend ({selected_defect or 'Defect'})"
+    chart_line_def.y_axis.title = "Value"
+    chart_line_def.x_axis.title = "Date"
+    chart_line_def.width = 16
+    chart_line_def.height = 10
+
+    data_def = Reference(ws_def, min_col=2, min_row=1, max_row=max_r_def)
+    cats_def = Reference(ws_def, min_col=1, min_row=2, max_row=max_r_def)
+    chart_line_def.add_data(data_def, titles_from_data=True)
+    chart_line_def.set_categories(cats_def)
+    ws_def.add_chart(chart_line_def, "E2")
+
+# C. 在 Yield Trend Analysis 中嵌入良率趋势折线图
+if "Yield Trend Analysis" in wb.sheetnames and not global_daily_yield_agg.empty:
+    ws_yld = wb["Yield Trend Analysis"]
+    max_r_yld = len(global_daily_yield_agg) + 1
+
+    chart_line_yld = LineChart()
+    chart_line_yld.title = "Daily Average Yield Trend (单日平均良率推移)"
+    chart_line_yld.y_axis.title = "FPY (%)"
+    chart_line_yld.x_axis.title = "Date"
+    chart_line_yld.width = 16
+    chart_line_yld.height = 10
+
+    data_yld = Reference(ws_yld, min_col=2, min_row=1, max_row=max_r_yld)
+    cats_yld = Reference(ws_yld, min_col=1, min_row=2, max_row=max_r_yld)
+    chart_line_yld.add_data(data_yld, titles_from_data=True)
+    chart_line_yld.set_categories(cats_yld)
+    ws_yld.add_chart(chart_line_yld, "E2")
+
+# 重新保存到最终内存流
 final_output = io.BytesIO()
 wb.save(final_output)
 excel_data = final_output.getvalue()
@@ -743,7 +789,7 @@ with export_col2:
     st.download_button(
         label=t["btn_export"],
         data=excel_data,
-        file_name="Tenpower_Electrode_Chart_Summary_Report.xlsx",
+        file_name="Tenpower_Electrode_Full_Chart_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
