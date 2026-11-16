@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= 语言词典配置 (中/英 100% 覆盖) =================
+# ================= 语言词典配置 (UI 标题/提示全双语，业务数据源原样保留) =================
 LANG_DICT = {
     "zh": {
         "title": "📊 Tenpower electrode dashboard",
@@ -30,7 +30,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **100% 全面国际化适配**：将责任归属排行区域、机台筛选标签全部纳入双语词典，切换英文后无任何中文残留。
+        - **UI 纯英文与业务数据保留**：切换英文时完美翻译所有界面标题、控件及图表抬头，同时 100% 保留 MES 底层业务数据的原本字符（如机台、工序、不良项名称），确保数据准确性。
         - **双过滤与智能隐藏目标线**：单项不良和良率推移均支持机台多选筛选；数量模式自动隐藏目标线。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -105,7 +105,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **100% Internationalization**: Fully translated responsibility ranking and machine filters into English.
+        - **UI Localization & Data Integrity**: Fully translated UI titles, labels, and chart headers into English while 100% preserving raw MES business data content for calculation and accuracy.
         - **Flexible Filtering & Auto-hide Targets**: Machine multi-select filters and intelligent target line visibility.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
@@ -646,7 +646,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 9.1 单项不良责任归属快速对比（100% 国际化） =================
+# ================= 9.1 单项不良责任归属快速对比（保留原始业务字段，翻译UI标题） =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
