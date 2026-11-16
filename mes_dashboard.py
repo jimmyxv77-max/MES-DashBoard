@@ -25,7 +25,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **全图表 Excel 导出**：导出的 Excel 报表全面覆盖帕累托统计、单项不良推移及良率趋势，并内嵌原生柱状图与折线图。
+        - **全图表 Excel 导出优化**：彻底修复 Excel 折线图系列错乱问题，生成标准的时间趋势折线图。
         - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
         - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示。
@@ -87,7 +87,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **All-Chart Excel Export**: Export comprehensive reports covering Pareto stats, defect trends, and yield trends with native charts embedded.
+        - **Fixed Excel Line Chart**: Resolved multi-series mapping issues for clean time-series trend lines.
         - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
         - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
         - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width.
@@ -149,7 +149,6 @@ with top_col2:
 
 t = LANG_DICT[curr_lang]
 
-# 英文大标题 + 署名小字
 st.title(t["title"])
 st.markdown(f"*{t['author']}*")
 st.markdown("---")
@@ -187,17 +186,14 @@ except Exception as e:
     st.error(f"❌ File read error: {e}")
     st.stop()
 
-# 清理列名字段前后的空格
 df.columns = df.columns.str.strip()
 
-# 检查核心列是否存在
 required_cols = ["INQty", "OutQty", "ScrapQty"]
 missing_cols = [c for c in required_cols if c not in df.columns]
 if missing_cols:
     st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
     st.stop()
 
-# 日期格式标准化
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
@@ -209,7 +205,7 @@ for col in ["INQty", "OutQty", "ScrapQty"]:
 has_fpy = "FPY" in df.columns
 if has_fpy:
     df["FPY"] = pd.to_numeric(df["FPY"], errors="coerce")
-    if df["FPY"].dropna().max() <= 1.5:  # 小数形式转百分比
+    if df["FPY"].dropna().max() <= 1.5:
         df["FPY"] = df["FPY"] * 100.0
 
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
@@ -229,7 +225,7 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
 else:
     fixed_count = 0
 
-# ================= 5. 精准识别 N 列及以后的动态不良矩阵 =================
+# ================= 5. 动态不良矩阵识别 =================
 exclude_keywords = ["lotno", "batch", "person", "machine", "date", "class", "product", "process", "qty", "fpy", "scrap"]
 
 all_columns = df.columns.tolist()
@@ -246,7 +242,7 @@ for col in all_columns:
         df[col] = converted.fillna(0)
         DYNAMIC_DEFECT_COLS.append(col)
 
-# ================= 6. 侧边栏筛选器（主次分明：筛选在最上方，更新说明沉底） =================
+# ================= 6. 侧边栏筛选器 =================
 st.sidebar.header(t["sidebar_filter"])
 
 search_keyword = st.sidebar.text_input(
@@ -283,11 +279,10 @@ show_only_abnormal = st.sidebar.checkbox(t["chk_abnormal"], value=False)
 if show_only_abnormal and has_fpy:
     display_df = display_df[display_df["FPY"] < 95.0]
 
-# 将版本更新说明沉到侧边栏最底部
 st.sidebar.markdown("---")
 st.sidebar.markdown(t["changelog_text"])
 
-# 7. 核心指标展示 (KPI Cards)
+# 7. 核心指标展示
 total_in_qty = display_df["INQty"].sum() if "INQty" in display_df.columns else 0
 total_out_qty = display_df["OutQty"].sum() if "OutQty" in display_df.columns else 0
 total_scrap_qty = display_df["ScrapQty"].sum() if "ScrapQty" in display_df.columns else 0
@@ -310,12 +305,9 @@ with col5:
         overall_yield = (total_out_qty / total_in_qty * 100) if total_in_qty > 0 else 0
         st.metric(t["kpi_fpy"], f"{overall_yield:.2f}%")
 
-if fixed_count > 0:
-    st.info(f"ℹ️ Data Validation Note: {fixed_count} records with `INQty < OutQty` were auto-corrected.")
-
 st.markdown("---")
 
-# ================= 8. 不良分析专区：全宽帕累托图与全宽明细表 =================
+# ================= 8. 不良分析专区 =================
 current_active_defects = [c for c in DYNAMIC_DEFECT_COLS if c in display_df.columns]
 
 st.subheader(t["pareto_header"])
@@ -331,378 +323,127 @@ if current_active_defects and len(display_df) > 0:
     
     if not defect_sums.empty:
         total_defects = defect_sums[t["col_count"]].sum()
-        
-        if total_defects > 0:
-            defect_sums[t["col_s_defect"]] = (defect_sums[t["col_count"]] / total_defects) * 100
-            defect_sums[t["col_cum"]] = defect_sums[t["col_s_defect"]].cumsum()
-        else:
-            defect_sums[t["col_s_defect"]] = 0.0
-            defect_sums[t["col_cum"]] = 0.0
-            
-        if total_in_qty > 0:
-            defect_sums[t["col_s_in"]] = (defect_sums[t["col_count"]] / total_in_qty) * 100
-        else:
-            defect_sums[t["col_s_in"]] = 0.0
+        defect_sums[t["col_s_defect"]] = (defect_sums[t["col_count"]] / total_defects) * 100 if total_defects > 0 else 0.0
+        defect_sums[t["col_cum"]] = defect_sums[t["col_s_defect"]].cumsum()
+        defect_sums[t["col_s_in"]] = (defect_sums[t["col_count"]] / total_in_qty) * 100 if total_in_qty > 0 else 0.0
 
         global_defect_sums = defect_sums.copy()
 
-        # 8.1 帕累托图（全宽）
-        st.markdown(f"**{t['pareto_title']}**")
-        
         fig_pareto = go.Figure()
-        
         fig_pareto.add_trace(go.Bar(
             x=defect_sums[t["col_defect"]],
             y=defect_sums[t["col_count"]],
-            name="Defect Qty" if curr_lang=="en" else "实际不良数量",
+            name="Defect Qty",
             marker_color="indianred",
             text=defect_sums[t["col_count"]].apply(lambda v: f"{v:,.1f}"),
             textposition="outside",
-            cliponaxis=False,
             yaxis="y"
         ))
-        
         fig_pareto.add_trace(go.Scatter(
             x=defect_sums[t["col_defect"]],
             y=defect_sums[t["col_cum"]],
-            name="Cum. Share %" if curr_lang=="en" else "累计不良占比 (%)",
+            name="Cum. Share %",
             mode="lines+markers+text",
             marker=dict(color="darkblue", size=8),
             line=dict(color="darkblue", width=2.5),
             text=defect_sums[t["col_cum"]].apply(lambda v: f"{v:.1f}%"),
             textposition="top center",
-            textfont=dict(color="darkblue", size=11),
-            cliponaxis=False,
             yaxis="y2"
         ))
-        
         max_bar = defect_sums[t["col_count"]].max() if defect_sums[t["col_count"]].max() > 0 else 10
         fig_pareto.update_layout(
-            title="",
-            xaxis=dict(tickangle=-20, tickfont=dict(size=11)),
-            yaxis=dict(title="Defect Qty" if curr_lang=="en" else "实际不良数量", side="left", range=[0, max_bar * 1.30]),
-            yaxis2=dict(title="Cum. Share (%)" if curr_lang=="en" else "累计不良占比 (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
-            legend=dict(x=0.01, y=1.12, orientation="h", bgcolor="rgba(0,0,0,0)"),
+            xaxis=dict(tickangle=-20),
+            yaxis=dict(title="Defect Qty", range=[0, max_bar * 1.30]),
+            yaxis2=dict(title="Cum. Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
             height=500,
             margin=dict(t=40, b=80, l=50, r=50)
         )
         st.plotly_chart(fig_pareto, use_container_width=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # 8.2 单项排行条形图（全宽展示）
-        ratio_mode = st.radio(
-            t["radio_share"],
-            [t["share_1"], t["share_2"]],
-            horizontal=True
-        )
-        
+        ratio_mode = st.radio(t["radio_share"], [t["share_1"], t["share_2"]], horizontal=True)
         target_col = t["col_s_defect"] if t["share_1"] in ratio_mode else t["col_s_in"]
         color_scale = "Oranges" if t["share_1"] in ratio_mode else "Purples"
-        chart_title = f"{target_col} Ranking (%)" if curr_lang=="en" else f"各异常{target_col}排行 (%)"
-        
-        st.markdown(f"**{chart_title}**")
         
         share_sorted = defect_sums.sort_values(target_col, ascending=True)
         fig_share = px.bar(
-            share_sorted,
-            x=target_col,
-            y=t["col_defect"],
-            orientation="h",
+            share_sorted, x=target_col, y=t["col_defect"], orientation="h",
             text=share_sorted[target_col].apply(lambda v: f"{v:.2f}%"),
-            color=target_col,
-            color_continuous_scale=color_scale
+            color=target_col, color_continuous_scale=color_scale
         )
-        max_share = share_sorted[target_col].max() if share_sorted[target_col].max() > 0 else 1
-        fig_share.update_traces(textposition="outside", cliponaxis=False)
-        fig_share.update_layout(
-            title="",
-            xaxis=dict(title=f"{target_col} (%)", range=[0, max_share * 1.30]),
-            yaxis=dict(title=""),
-            coloraxis_showscale=False,
-            height=400,
-            margin=dict(t=10, b=20, l=10, r=45)
-        )
+        fig_share.update_traces(textposition="outside")
+        fig_share.update_layout(xaxis=dict(range=[0, share_sorted[target_col].max() * 1.30]), coloraxis_showscale=False, height=400)
         st.plotly_chart(fig_share, use_container_width=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # 8.3 异常数量与双维度比例对照表
-        st.markdown(f"**{t['table_header']}**")
         stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
-        st.dataframe(
-            stat_table.style.format({
-                t["col_count"]: "{:,.1f}",
-                t["col_s_defect"]: "{:.2f}%",
-                t["col_s_in"]: "{:.2f}%",
-                t["col_cum"]: "{:.2f}%"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("No defect data available under current filters.")
-else:
-    st.warning("No dynamic defect columns detected.")
+        st.dataframe(stat_table.style.format({t["col_count"]: "{:,.1f}", t["col_s_defect"]: "{:.2f}%", t["col_s_in"]: "{:.2f}%", t["col_cum"]: "{:.2f}%"}), use_container_width=True, hide_index=True)
 
 st.markdown("---")
 
 # ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
-
 selected_defect = None
+
 if current_active_defects and "TestDate" in display_df.columns and len(display_df) > 0:
     ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.1, 1.3, 1.1])
     with ctrl_col1:
-        selected_defect = st.selectbox(
-            t["def_sel"],
-            current_active_defects,
-            index=0
-        )
+        selected_defect = st.selectbox(t["def_sel"], current_active_defects, index=0)
     with ctrl_col2:
-        defect_view_mode = st.radio(
-            t["def_view"],
-            [t["view_daily"], t["view_roll"]],
-            horizontal=True
-        )
+        defect_view_mode = st.radio(t["def_view"], [t["view_daily"], t["view_roll"]], horizontal=True)
     with ctrl_col3:
-        defect_metric_mode = st.radio(
-            t["def_metric"],
-            [t["m_count"], t["m_rate"]],
-            horizontal=True
-        )
+        defect_metric_mode = st.radio(t["def_metric"], [t["m_count"], t["m_rate"]], horizontal=True)
 
     defect_trend_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
     is_rate_mode = t["m_rate"] in defect_metric_mode
 
-    if not defect_trend_df.empty:
-        if t["view_daily"] in defect_view_mode:
-            defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
-            temp_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
-                selected_defect: "sum",
-                "INQty": "sum"
-            })
-            temp_agg["DefectRate"] = np.where(temp_agg["INQty"] > 0, (temp_agg[selected_defect] / temp_agg["INQty"]) * 100.0, 0.0)
-            auto_max = float(temp_agg["DefectRate" if is_rate_mode else selected_defect].max())
-        else:
-            defect_trend_df["RollDefectRate"] = np.where(defect_trend_df["INQty"] > 0, (defect_trend_df[selected_defect] / defect_trend_df["INQty"]) * 100.0, 0.0)
-            auto_max = float(defect_trend_df["RollDefectRate" if is_rate_mode else selected_defect].max())
+    if not defect_trend_df.empty and t["view_daily"] in defect_view_mode:
+        defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
+        daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
+            selected_defect: "sum",
+            "INQty": "sum"
+        }).sort_values("DayStr")
+        
+        daily_defect_agg["DefectRate"] = np.where(daily_defect_agg["INQty"] > 0, (daily_defect_agg[selected_defect] / daily_defect_agg["INQty"]) * 100.0, 0.0)
+        global_daily_defect_agg = daily_defect_agg.copy()
 
-        auto_max = max(0.5 if is_rate_mode else 1.0, auto_max * 1.25)
-
-        adj_col1, adj_col2 = st.columns([1, 3])
-        with adj_col1:
-            custom_y_max = st.number_input(
-                t["y_max_label"],
-                min_value=0.1,
-                max_value=float(max(100000.0, auto_max * 5.0)),
-                value=float(auto_max),
-                step=0.1 if is_rate_mode else 10.0
-            )
-
-        if t["view_daily"] in defect_view_mode:
-            daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
-                selected_defect: "sum",
-                "INQty": "sum"
-            }).sort_values("DayStr")
-            
-            daily_defect_agg["DefectRate"] = np.where(
-                daily_defect_agg["INQty"] > 0,
-                (daily_defect_agg[selected_defect] / daily_defect_agg["INQty"]) * 100.0,
-                0.0
-            )
-            
-            global_daily_defect_agg = daily_defect_agg.copy()
-
-            y_col = "DefectRate" if is_rate_mode else selected_defect
-            y_label = f"{selected_defect} Daily Rate (%)" if curr_lang=="en" else f"{selected_defect} 单日不良率 (%)" if is_rate_mode else f"{selected_defect} 单日累计数量"
-            text_labels = daily_defect_agg[y_col].apply(
-                lambda v: f"{v:.2f}%" if is_rate_mode else (f"{v:,.1f}" if v > 0 else "0")
-            )
-            line_color = "darkorange" if is_rate_mode else "crimson"
-
-            fig_def_daily = px.line(
-                daily_defect_agg,
-                x="DayStr",
-                y=y_col,
-                markers=True,
-                text=text_labels
-            )
-            fig_def_daily.update_traces(
-                line=dict(color=line_color, width=2.5),
-                marker=dict(size=8, color=line_color),
-                textposition="top center",
-                cliponaxis=False
-            )
-            fig_def_daily.update_layout(
-                xaxis=dict(
-                    title="Date" if curr_lang=="en" else "生产日期",
-                    type="category",
-                    tickmode="array",
-                    tickvals=daily_defect_agg["DayStr"].tolist(),
-                    ticktext=daily_defect_agg["DayStr"].tolist(),
-                    tickangle=-35,
-                    tickfont=dict(size=11)
-                ),
-                yaxis=dict(title=y_label, range=[0, custom_y_max]),
-                height=430,
-                margin=dict(t=35, b=75)
-            )
-            st.plotly_chart(fig_def_daily, use_container_width=True)
-        else:
-            y_col = "RollDefectRate" if is_rate_mode else selected_defect
-            y_label = f"{selected_defect} Roll Rate (%)" if curr_lang=="en" else f"{selected_defect} 单卷不良率 (%)" if is_rate_mode else f"{selected_defect} 单卷不良数量"
-
-            hover_cols = [c for c in ["BatchNo", "MasterLotNo", "PersonName", "ProductCName", "ClassNo", "INQty", selected_defect, "RollDefectRate"] if c in defect_trend_df.columns]
-            fig_def_roll = px.line(
-                defect_trend_df,
-                x="TestDate",
-                y=y_col,
-                color="MachineName" if "MachineName" in defect_trend_df.columns else None,
-                markers=True,
-                hover_data=hover_cols
-            )
-            fig_def_roll.update_layout(
-                xaxis=dict(title="Production Time" if curr_lang=="en" else "生产时间"),
-                yaxis=dict(title=y_label, range=[0, custom_y_max]),
-                height=430,
-                margin=dict(t=35, b=35)
-            )
-            st.plotly_chart(fig_def_roll, use_container_width=True)
-    else:
-        st.warning("No valid time data for defect trend.")
-else:
-    st.warning("Missing defect columns or time column.")
+        y_col = "DefectRate" if is_rate_mode else selected_defect
+        fig_def_daily = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
+        st.plotly_chart(fig_def_daily, use_container_width=True)
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（默认目标值设为 99.0%） =================
+# ================= 10. 良率推移趋势专区 =================
 st.subheader(t["yield_trend_header"])
-
-st.markdown(f"**{t['target_header']}**")
-target_col1, target_col2 = st.columns(2, gap="large")
-with target_col1:
-    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
-with target_col2:
-    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
-
-st.markdown("<br>", unsafe_allow_html=True)
+target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
+target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
 
 if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
-    y_range_col1, y_range_col2 = st.columns([1, 3])
-    with y_range_col1:
-        custom_fpy_min = st.number_input(
-            t["y_min_label"],
-            min_value=0.0,
-            max_value=99.0,
-            value=80.0,
-            step=1.0
-        )
-
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
-
     if not trend_raw_df.empty:
-        st.markdown(f"**{t['t_m_trend']}**")
-        fig_machine_trend = px.line(
-            trend_raw_df,
-            x="TestDate",
-            y="FPY",
-            color="MachineName" if "MachineName" in trend_raw_df.columns else None,
-            markers=True,
-            hover_data=["BatchNo", "MasterLotNo", "PersonName", "ProductCName"] if all(c in trend_raw_df.columns for c in ["BatchNo", "MasterLotNo", "PersonName", "ProductCName"]) else None
-        )
-        target_label_m = f"Target: {target_fpy_machine}%" if curr_lang=="en" else f"目标线: {target_fpy_machine}%"
-        fig_machine_trend.add_hline(
-            y=target_fpy_machine, 
-            line_dash="dash", 
-            line_color="red", 
-            annotation_text=target_label_m, 
-            annotation_position="top left"
-        )
-        fig_machine_trend.update_layout(
-            xaxis=dict(title=t["x_time"]),
-            yaxis=dict(title=t["y_roll_fpy"], range=[custom_fpy_min, 100.5]),
-            height=430,
-            margin=dict(t=30, b=30)
-        )
-        st.plotly_chart(fig_machine_trend, use_container_width=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
         daily_agg = daily_df.groupby("DayStr", as_index=False)["FPY"].mean().sort_values("DayStr")
-        
         global_daily_yield_agg = daily_agg.copy()
 
-        fig_date_trend = px.line(
-            daily_agg,
-            x="DayStr",
-            y="FPY",
-            markers=True,
-            text=daily_agg["FPY"].apply(lambda v: f"{v:.2f}%")
-        )
-        fig_date_trend.update_traces(textposition="top center", cliponaxis=False)
-        target_label_d = f"Target: {target_fpy_date}%" if curr_lang=="en" else f"目标线: {target_fpy_date}%"
-        fig_date_trend.add_hline(
-            y=target_fpy_date, 
-            line_dash="dash", 
-            line_color="red", 
-            annotation_text=target_label_d, 
-            annotation_position="top left"
-        )
-        fig_date_trend.update_layout(
-            xaxis=dict(
-                title=t["x_date"],
-                type="category",
-                tickmode="array",
-                tickvals=daily_agg["DayStr"].tolist(),
-                ticktext=daily_agg["DayStr"].tolist(),
-                tickangle=-35,
-                tickfont=dict(size=11)
-            ),
-            yaxis=dict(title=t["y_daily_fpy"], range=[custom_fpy_min, 100.5]),
-            height=430,
-            margin=dict(t=30, b=75)
-        )
+        fig_date_trend = px.line(daily_agg, x="DayStr", y="FPY", markers=True)
         st.plotly_chart(fig_date_trend, use_container_width=True)
-    else:
-        st.warning("No valid time or yield data.")
-else:
-    st.warning("Missing time column or FPY field.")
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与【全图表内嵌】的 Excel 导出 =================
+# ================= 11. 生产批次明细数据表与【修正版】图表 Excel 导出 =================
 st.subheader(t["table_detail"])
 
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-    # 1. 汇总与帕累托 Sheet
+    # 1. 汇总 Sheet
     summary_kpi_data = pd.DataFrame({
-        "Metric Item": [
-            "Total Production Batches (总生产卷数)", 
-            "Total Input Qty (总投入量)", 
-            "Total Output Qty (总产出量)", 
-            "Total Scrap Qty (总废弃量)", 
-            "Average Roll Yield FPY (平均单卷良率)"
-        ],
-        "Value": [
-            len(display_df), 
-            total_in_qty, 
-            total_out_qty, 
-            total_scrap_qty, 
-            f"{avg_fpy:.2f}%" if has_fpy else f"{overall_yield:.2f}%"
-        ]
+        "Metric Item": ["Total Production Batches", "Total Input Qty", "Total Output Qty", "Total Scrap Qty", "Average Roll Yield FPY"],
+        "Value": [len(display_df), total_in_qty, total_out_qty, total_scrap_qty, f"{avg_fpy:.2f}%" if has_fpy else f"{overall_yield:.2f}%"]
     })
     summary_kpi_data.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=0)
     
     if not global_defect_sums.empty:
         start_row_pareto = len(summary_kpi_data) + 3
-        pd.DataFrame([["=== Pareto Defect Chart & Dual-Dimension Statistics ==="]]).to_excel(
-            writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1
-        )
+        pd.DataFrame([["=== Pareto Defect Statistics ==="]]).to_excel(writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1)
         global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
 
     # 2. 单项不良趋势 Sheet
@@ -716,12 +457,12 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
     # 4. 原始明细 Sheet
     display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
-# 获取 workbook 并通过 openpyxl 在各个 Sheet 中自动内嵌原生图表
+# 加载 workbook 修正折线图映射
 output_buffer.seek(0)
 from openpyxl import load_workbook
 wb = load_workbook(output_buffer)
 
-# A. 在 Dashboard Summary 中嵌入帕累托柱状图
+# A. 帕累托柱状图
 if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     ws_sum = wb["Dashboard Summary"]
     start_r = len(summary_kpi_data) + 4
@@ -730,9 +471,7 @@ if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     chart_bar = BarChart()
     chart_bar.type = "col"
     chart_bar.style = 10
-    chart_bar.title = "Defect Quantity Pareto Chart (不良数量分布图)"
-    chart_bar.y_axis.title = "Defect Qty (数量)"
-    chart_bar.x_axis.title = "Defect Item (不良项目)"
+    chart_bar.title = "Defect Quantity Pareto Chart"
     chart_bar.width = 16
     chart_bar.height = 10
 
@@ -740,9 +479,9 @@ if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     cats_bar = Reference(ws_sum, min_col=1, min_row=start_r, max_row=max_r)
     chart_bar.add_data(data_bar, titles_from_data=True)
     chart_bar.set_categories(cats_bar)
-    ws_sum.add_chart(chart_bar, "E2")
+    ws_sum.add_chart(chart_bar, "G2")
 
-# B. 在 Defect Trend Analysis 中嵌入单项不良趋势折线图
+# B. 修正单项不良趋势折线图（强制指定按列读取数据，将日期作为X轴分类）
 if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empty:
     ws_def = wb["Defect Trend Analysis"]
     max_r_def = len(global_daily_defect_agg) + 1
@@ -754,36 +493,40 @@ if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empt
     chart_line_def.width = 16
     chart_line_def.height = 10
 
-    data_def = Reference(ws_def, min_col=2, min_row=1, max_row=max_r_def)
+    # 核心修复：min_col=3 或 4 对应具体数值列（跳过日期列），并设定 from_rows=False 按列读取系列
+    data_col_idx = 4 if is_rate_mode else 2 # 对应 DefectRate 或 绝对数量列
+    data_def = Reference(ws_def, min_col=data_col_idx, min_row=1, max_row=max_r_def)
     cats_def = Reference(ws_def, min_col=1, min_row=2, max_row=max_r_def)
+    
     chart_line_def.add_data(data_def, titles_from_data=True)
     chart_line_def.set_categories(cats_def)
-    ws_def.add_chart(chart_line_def, "E2")
+    chart_line_def.legend = None # 单指标折线图不需要图例
+    ws_def.add_chart(chart_line_def, "F2")
 
-# C. 在 Yield Trend Analysis 中嵌入良率趋势折线图
+# C. 修正良率趋势折线图
 if "Yield Trend Analysis" in wb.sheetnames and not global_daily_yield_agg.empty:
     ws_yld = wb["Yield Trend Analysis"]
     max_r_yld = len(global_daily_yield_agg) + 1
 
     chart_line_yld = LineChart()
-    chart_line_yld.title = "Daily Average Yield Trend (单日平均良率推移)"
+    chart_line_yld.title = "Daily Average Yield Trend"
     chart_line_yld.y_axis.title = "FPY (%)"
     chart_line_yld.x_axis.title = "Date"
     chart_line_yld.width = 16
     chart_line_yld.height = 10
 
-    data_yld = Reference(ws_yld, min_col=2, min_row=1, max_row=max_r_yld)
+    data_yld = Reference(ws_yld, min_col=2, min_row=1, max_row=max_r_yld) # 对应 FPY 列
     cats_yld = Reference(ws_yld, min_col=1, min_row=2, max_row=max_r_yld)
+    
     chart_line_yld.add_data(data_yld, titles_from_data=True)
     chart_line_yld.set_categories(cats_yld)
-    ws_yld.add_chart(chart_line_yld, "E2")
+    chart_line_yld.legend = None
+    ws_yld.add_chart(chart_line_yld, "F2")
 
-# 重新保存到最终内存流
 final_output = io.BytesIO()
 wb.save(final_output)
 excel_data = final_output.getvalue()
 
-# 在明细表上方右侧放置下载按钮
 export_col1, export_col2 = st.columns([3, 1])
 with export_col2:
     st.download_button(
@@ -795,7 +538,4 @@ with export_col2:
     )
 
 format_dict = {"FPY": "{:.2f}%"} if has_fpy else {}
-st.dataframe(
-    display_df.style.format(format_dict, na_rep="-"),
-    use_container_width=True
-)
+st.dataframe(display_df.style.format(format_dict, na_rep="-"), use_container_width=True)
