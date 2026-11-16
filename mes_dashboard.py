@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **各机台良率图新增机台筛选**：支持在图表上方多选/单选机台，避免多机台交织杂乱。
-        - **不良数量模式自动隐藏目标线**：当单项不良选择“数量推移”时，自动隐藏目标线及其设置项，符合物理实际。
-        - **双轴组合良率图与常驻清洗提示**：保留投入产出柱状图、稳健目标线及分切 `too much` 异常放行。
+        - **单项不良分机台图表新增机台筛选**：在单项不良的“按单卷明细推移”视图下同步加入机台多选筛选器，方便随时过滤排查特定机台。
+        - **不良数量模式自动隐藏目标线**：当单项不良选择数量统计时自动隐藏目标线。
+        - **全功能完美继承**：保留常驻清洗提示、分切 `too much` 异常放行及良率双轴组合图。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -96,8 +96,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Machine Filter for Machine Yield Trend**: Added multi-select machine filter above the chart for focused viewing.
-        - **Auto-hide Target Line for Defect Qty**: Target lines and inputs are automatically hidden when viewing defect quantity trend.
+        - **Machine Filter for Single Defect Roll View**: Added a machine multi-select filter for the single defect roll-level trend chart.
+        - **Auto-hide Target Line for Defect Qty**: Target lines are automatically hidden for quantity metrics.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -420,7 +420,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（数量模式自动隐藏目标线） =================
+# ================= 9. 动态单项不良变化推移图（数量模式自动隐藏目标线，分机台模式支持机台过滤） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -435,9 +435,24 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
     defect_trend_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
     is_rate_mode = t["m_rate"] in defect_metric_mode
+    is_roll_mode = t["view_roll"] in defect_view_mode
+
+    # 如果是分机台明细模式，增加机台多选筛选器
+    if is_roll_mode:
+        all_defect_machines = sorted(defect_trend_df["MachineName"].dropna().astype(str).unique().tolist()) if "MachineName" in defect_trend_df.columns else []
+        if all_defect_machines:
+            selected_defect_machines = st.multiselect(
+                "🎛️ 选择要追踪的不良机台（支持多选/全选）：",
+                options=all_defect_machines,
+                default=all_defect_machines,
+                key="defect_machine_multiselect"
+            )
+            if selected_defect_machines:
+                defect_trend_df = defect_trend_df[defect_trend_df["MachineName"].astype(str).isin(selected_defect_machines)]
 
     if not defect_trend_df.empty:
-        if t["view_daily"] in defect_view_mode:
+        if not is_roll_mode:
+            # 颗粒度 1：按单日汇总趋势
             defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
             daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
                 selected_defect: "sum",
@@ -457,7 +472,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             raw_series = daily_defect_agg[y_col].dropna()
             auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
             
-            # 只有在“不良率”模式下才计算目标线及显示相关控件
             if is_rate_mode:
                 init_mean = raw_series.mean()
                 init_std = raw_series.std()
@@ -500,7 +514,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         step=0.1
                     )
             else:
-                # 数量模式：不设目标线，仅保留 Y 轴上限调节
                 custom_defect_ymax = st.number_input(
                     t["y_max_label"],
                     min_value=1.0,
@@ -528,6 +541,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             st.plotly_chart(fig_def, use_container_width=True)
 
         else:
+            # 颗粒度 2：按单卷明细推移（分机台）
             roll_df = defect_trend_df.copy()
             roll_df["DefectRatePercent"] = np.where(
                 roll_df["INQty"] > 0, 
@@ -666,7 +680,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（新增机台过滤控件） =================
+# ================= 10. 良率推移趋势专区（含机台过滤控件） =================
 st.subheader(t["yield_trend_header"])
 
 st.markdown(f"**{t['target_header']}**")
@@ -692,7 +706,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # --- 🛠️ 1. 各机台单卷良率推移走势（增加机台筛选器） ---
+        # --- 1. 各机台单卷良率推移走势（含机台筛选器） ---
         st.markdown(f"**{t['t_m_trend']}**")
         
         all_machines = sorted(trend_raw_df["MachineName"].dropna().astype(str).unique().tolist()) if "MachineName" in trend_raw_df.columns else []
