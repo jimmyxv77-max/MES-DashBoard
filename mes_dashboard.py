@@ -30,10 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **良率图 Y 轴上下限调节恢复**：重新加入良率图 Y 轴下限自定义输入框，支持灵活缩放观察。
-        - **良率推移双图表**：完整恢复“各机台单卷良率推移”与“单日平均良率推移”双独立折线图及对应目标线。
-        - **单项不良目标线功能**：新增单项不良目标线设置（支持自由拖动，并预留锁死目标线接口）。
-        - **Excel 图表完美呈现**：单项不良与良率趋势在 Excel 中采用标准图表呈现。
+        - **单位与纵坐标全系统统一**：单项不良率推移全面转换为百分比（%）单位，纵坐标与悬浮提示自动带上 `%` 符号。
+        - **功能逻辑深度对齐**：单项不良完美打通“单日汇总”与“按单卷明细（分机台）”双粒度联动。
+        - **良率图 Y 轴下限调节恢复**：支持灵活缩放观察良率细节。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -62,7 +61,7 @@ LANG_DICT = {
         "col_s_defect": "占总不良比例",
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
-        "defect_trend_header": "🔍 单项不良变化推移图（含自定义/锁死目标线）",
+        "defect_trend_header": "🔍 单项不良变化推移图（统一百分比单位 & 双粒度支持）",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -92,8 +91,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Yield Chart Y-Axis Limit Restored**: Re-added Y-axis lower limit input control for flexible chart scaling.
-        - **Yield Trend Dual Charts**: Restored both Machine Roll Yield and Daily Avg Yield trend charts.
+        - **Unified Percentage Units**: Single defect rate trends are now uniformly displayed in percentages (%) with matching axis labels.
+        - **Aligned Granularity**: Full support for both daily summary and roll-level multi-machine tracking.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -381,7 +380,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图 =================
+# ================= 9. 动态单项不良变化推移图（统一百分比单位 & 完美双粒度支持） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -397,51 +396,117 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
     defect_trend_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
     is_rate_mode = t["m_rate"] in defect_metric_mode
 
-    if not defect_trend_df.empty and t["view_daily"] in defect_view_mode:
-        defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
-        daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
-            selected_defect: "sum",
-            "INQty": "sum"
-        }).sort_values("DayStr")
-        
-        daily_defect_agg["DefectRate"] = np.where(daily_defect_agg["INQty"] > 0, (daily_defect_agg[selected_defect] / daily_defect_agg["INQty"]) * 100.0, 0.0)
-        global_daily_defect_agg = daily_defect_agg.copy()
+    if not defect_trend_df.empty:
+        if t["view_daily"] in defect_view_mode:
+            # 颗粒度 1：按单日汇总趋势
+            defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
+            daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
+                selected_defect: "sum",
+                "INQty": "sum"
+            }).sort_values("DayStr")
+            
+            # 统一转为百分比单位 (%)
+            daily_defect_agg["DefectRatePercent"] = np.where(
+                daily_defect_agg["INQty"] > 0, 
+                (daily_defect_agg[selected_defect] / daily_defect_agg["INQty"]) * 100.0, 
+                0.0
+            )
+            global_daily_defect_agg = daily_defect_agg.copy()
 
-        y_col = "DefectRate" if is_rate_mode else selected_defect
-        auto_max = float(daily_defect_agg[y_col].max()) if not daily_defect_agg[y_col].empty else 1.0
-        auto_max = max(0.5 if is_rate_mode else 1.0, auto_max * 1.25)
+            y_col = "DefectRatePercent" if is_rate_mode else selected_defect
+            y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
+            
+            auto_max = float(daily_defect_agg[y_col].max()) if not daily_defect_agg[y_col].empty else 1.0
+            auto_max = max(1.0, auto_max * 1.25)
 
-        locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
-        
-        adj_col1, adj_col2 = st.columns([1, 3])
-        with adj_col1:
-            if locked_val is not None:
-                st.info(f"🔒 Target Locked: {locked_val}")
-                target_defect_val = locked_val
-            else:
-                target_defect_val = st.number_input(
-                    t["def_target_label"],
-                    min_value=0.0,
-                    max_value=float(max(1000.0, auto_max * 2.0)),
-                    value=float(auto_max * 0.5),
-                    step=0.01 if is_rate_mode else 1.0
-                )
+            locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
+            
+            adj_col1, adj_col2 = st.columns([1, 3])
+            with adj_col1:
+                if locked_val is not None:
+                    st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
+                    target_defect_val = locked_val
+                else:
+                    target_defect_val = st.number_input(
+                        t["def_target_label"],
+                        min_value=0.0,
+                        max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
+                        value=float(auto_max * 0.5),
+                        step=0.01 if is_rate_mode else 1.0
+                    )
 
-        fig_def_daily = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
-        target_label_def = f"Target: {target_defect_val}" if curr_lang=="en" else f"目标线: {target_defect_val}"
-        fig_def_daily.add_hline(
-            y=target_defect_val,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=target_label_def,
-            annotation_position="top left"
-        )
-        fig_def_daily.update_layout(yaxis=dict(range=[0, max(auto_max, target_defect_val * 1.2)]), height=430)
-        st.plotly_chart(fig_def_daily, use_container_width=True)
+            fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
+            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
+            fig_def.add_hline(
+                y=target_defect_val,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=target_label_def,
+                annotation_position="top left"
+            )
+            fig_def.update_layout(
+                xaxis=dict(type="category", tickangle=-35),
+                yaxis=dict(title=y_axis_title, range=[0, max(auto_max, target_defect_val * 1.2)]),
+                height=430
+            )
+            st.plotly_chart(fig_def, use_container_width=True)
+
+        else:
+            # 颗粒度 2：按单卷明细推移（分机台多色对比，跟良率多机台一致）
+            roll_df = defect_trend_df.copy()
+            # 统一转为百分比单位 (%)
+            roll_df["DefectRatePercent"] = np.where(
+                roll_df["INQty"] > 0, 
+                (roll_df[selected_defect] / roll_df["INQty"]) * 100.0, 
+                0.0
+            )
+            y_col = "DefectRatePercent" if is_rate_mode else selected_defect
+            y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
+
+            auto_max = float(roll_df[y_col].max()) if not roll_df[y_col].empty else 1.0
+            auto_max = max(1.0, auto_max * 1.25)
+
+            locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
+            
+            adj_col1, adj_col2 = st.columns([1, 3])
+            with adj_col1:
+                if locked_val is not None:
+                    st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
+                    target_defect_val = locked_val
+                else:
+                    target_defect_val = st.number_input(
+                        t["def_target_label"],
+                        min_value=0.0,
+                        max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
+                        value=float(auto_max * 0.5),
+                        step=0.01 if is_rate_mode else 1.0
+                    )
+
+            fig_def = px.line(
+                roll_df,
+                x="TestDate",
+                y=y_col,
+                color="MachineName" if "MachineName" in roll_df.columns else None,
+                markers=True
+            )
+            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
+            fig_def.add_hline(
+                y=target_defect_val,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=target_label_def,
+                annotation_position="top left"
+            )
+            fig_def.update_layout(
+                xaxis=dict(title=t["x_time"]),
+                yaxis=dict(title=y_axis_title, range=[0, max(auto_max, target_defect_val * 1.2)]),
+                height=430
+            )
+            st.plotly_chart(fig_def, use_container_width=True)
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（恢复 Y 轴下限设定） =================
+# ================= 10. 良率推移趋势专区 =================
 st.subheader(t["yield_trend_header"])
 
 st.markdown(f"**{t['target_header']}**")
@@ -454,7 +519,6 @@ with target_col2:
 st.markdown("<br>", unsafe_allow_html=True)
 
 if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
-    # 恢复 Y 轴下限自定义输入控件
     y_range_col1, y_range_col2 = st.columns([1, 3])
     with y_range_col1:
         custom_fpy_min = st.number_input(
@@ -468,7 +532,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # 图表 1：各机台单卷良率推移走势（应用自定义 Y 轴下限）
+        # 图表 1：各机台单卷良率推移走势
         st.markdown(f"**{t['t_m_trend']}**")
         fig_machine_trend = px.line(
             trend_raw_df,
@@ -495,7 +559,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 图表 2：单日平均良率推移走势（应用自定义 Y 轴下限）
+        # 图表 2：单日平均良率推移走势
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
