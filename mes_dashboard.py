@@ -30,10 +30,10 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **良率推移双图表完美修复**：完整恢复“各机台单卷良率推移”与“单日平均良率推移”双独立折线图及对应目标线。
+        - **良率图 Y 轴上下限调节恢复**：重新加入良率图 Y 轴下限自定义输入框，支持灵活缩放观察。
+        - **良率推移双图表**：完整恢复“各机台单卷良率推移”与“单日平均良率推移”双独立折线图及对应目标线。
         - **单项不良目标线功能**：新增单项不良目标线设置（支持自由拖动，并预留锁死目标线接口）。
         - **Excel 图表完美呈现**：单项不良与良率趋势在 Excel 中采用标准图表呈现。
-        - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -92,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Fixed Yield Trend Dual Charts**: Restored both Machine Roll Yield and Daily Avg Yield trend charts with respective target lines.
-        - **Defect Target Line feature**: Added target line configuration for individual defects.
+        - **Yield Chart Y-Axis Limit Restored**: Re-added Y-axis lower limit input control for flexible chart scaling.
+        - **Yield Trend Dual Charts**: Restored both Machine Roll Yield and Daily Avg Yield trend charts.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -441,7 +441,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（双图表完美恢复） =================
+# ================= 10. 良率推移趋势专区（恢复 Y 轴下限设定） =================
 st.subheader(t["yield_trend_header"])
 
 st.markdown(f"**{t['target_header']}**")
@@ -454,10 +454,21 @@ with target_col2:
 st.markdown("<br>", unsafe_allow_html=True)
 
 if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
+    # 恢复 Y 轴下限自定义输入控件
+    y_range_col1, y_range_col2 = st.columns([1, 3])
+    with y_range_col1:
+        custom_fpy_min = st.number_input(
+            t["y_min_label"],
+            min_value=0.0,
+            max_value=99.0,
+            value=80.0,
+            step=1.0
+        )
+
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # 图表 1：各机台单卷良率推移走势
+        # 图表 1：各机台单卷良率推移走势（应用自定义 Y 轴下限）
         st.markdown(f"**{t['t_m_trend']}**")
         fig_machine_trend = px.line(
             trend_raw_df,
@@ -476,7 +487,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
         )
         fig_machine_trend.update_layout(
             xaxis=dict(title=t["x_time"]),
-            yaxis=dict(title=t["y_roll_fpy"], range=[80, 100.5]),
+            yaxis=dict(title=t["y_roll_fpy"], range=[custom_fpy_min, 100.5]),
             height=430,
             margin=dict(t=30, b=30)
         )
@@ -484,7 +495,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 图表 2：单日平均良率推移走势
+        # 图表 2：单日平均良率推移走势（应用自定义 Y 轴下限）
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
@@ -518,7 +529,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
                 tickangle=-35,
                 tickfont=dict(size=11)
             ),
-            yaxis=dict(title=t["y_daily_fpy"], range=[80, 100.5]),
+            yaxis=dict(title=t["y_daily_fpy"], range=[custom_fpy_min, 100.5]),
             height=430,
             margin=dict(t=30, b=75)
         )
