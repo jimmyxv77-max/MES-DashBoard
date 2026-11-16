@@ -37,8 +37,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **业务逻辑精准分流**：涂布工序异常自动修正执行；分切来料多（too much）保留原数据执行；同时对极端录入错误进行弹窗警示与明细罗列。
-        - **稳定性修复**：移除易报错的样式渐变，确保数据表格完美平稳渲染。
+        - **单项不良目标线联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。现在每次切换项目时，目标线和 Y 轴上限都会根据当前项目特征自动动态刷新。
+        - **业务逻辑精准分流**：涂布工序异常自动修正执行；分切来料多（too much）保留原数据执行；极端录入错误高亮罗列。
         - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -113,9 +113,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Business Logic Branching**: Coating errors auto-corrected; Slitting 'too much' records preserved; extreme input errors alerted and listed.
-        - **Stability Fix**: Removed style gradients to ensure error-free table rendering.
-        - **Default Pan & Scroll Lock**: Default to Pan tool with scroll zoom disabled.
+        - **Target Line Dynamic Binding Fixed**: Fixed a bug where target threshold values persisted when switching defect items. Now targets and Y-axis limits refresh dynamically per defect.
+        - **Business Routing & Pan Support**: Maintained smart data routing and default Pan tool with scroll lock.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -281,7 +280,7 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
     preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
     preserved_too_much_count = int(preserved_too_much_mask.sum())
 
-    # 规则 3：既不是涂布、又没有 too much 支撑的极端不合理异常（如输错成投入3万产出5万） -> 警示并罗列明细供上报修改
+    # 规则 3：既不是涂布、又没有 too much 支撑的极端不合理异常 -> 警示并罗列明细供上报修改
     extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
     if extreme_error_mask.sum() > 0:
         extreme_error_df = df[extreme_error_mask].copy()
@@ -484,11 +483,11 @@ selected_defect = None
 if current_active_defects and "TestDate" in display_df.columns and len(display_df) > 0:
     ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.1, 1.3, 1.1])
     with ctrl_col1:
-        selected_defect = st.selectbox(t["def_sel"], current_active_defects, index=0)
+        selected_defect = st.selectbox(t["def_sel"], current_active_defects, index=0, key="main_defect_selector")
     with ctrl_col2:
-        defect_view_mode = st.radio(t["def_view"], [t["view_daily"], t["view_roll"]], horizontal=True)
+        defect_view_mode = st.radio(t["def_view"], [t["view_daily"], t["view_roll"]], horizontal=True, key="main_view_mode_radio")
     with ctrl_col3:
-        defect_metric_mode = st.radio(t["def_metric"], [t["m_count"], t["m_rate"]], horizontal=True)
+        defect_metric_mode = st.radio(t["def_metric"], [t["m_count"], t["m_rate"]], horizontal=True, key="main_metric_mode_radio")
 
     defect_trend_df = display_df.dropna(subset=["TestDate"]).sort_values("TestDate").copy()
     is_rate_mode = t["m_rate"] in defect_metric_mode
@@ -507,6 +506,9 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 defect_trend_df = defect_trend_df[defect_trend_df["MachineName"].astype(str).isin(selected_defect_machines)]
 
     if not defect_trend_df.empty:
+        # 动态生成唯一的组件 key 绑定前缀，确保切换不良项目或粒度时重新计算默认值且不冲突
+        dynamic_input_key_suffix = f"{selected_defect}_{is_roll_mode}_{is_rate_mode}"
+
         if not is_roll_mode:
             defect_trend_df["DayStr"] = defect_trend_df["TestDate"].dt.strftime("%Y-%m-%d")
             daily_defect_agg = defect_trend_df.groupby("DayStr", as_index=False).agg({
@@ -556,7 +558,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                             min_value=0.0,
                             max_value=float(max(100.0, auto_max * 2.0)),
                             value=float(round(sigma_default, 2)),
-                            key="target_input_main",
+                            key=f"target_input_main_{dynamic_input_key_suffix}",
                             step=0.01
                         )
                 with adj_col2:
@@ -565,7 +567,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         min_value=0.01,
                         max_value=float(max(1000.0, auto_max * 10.0)),
                         value=float(max(auto_max, target_defect_val * 1.2)),
-                        key="ymax_input_main",
+                        key=f"ymax_input_main_{dynamic_input_key_suffix}",
                         step=0.1
                     )
             else:
@@ -574,7 +576,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     min_value=1.0,
                     max_value=float(max(100000.0, auto_max * 10.0)),
                     value=float(max(10.0, auto_max * 1.2)),
-                    key="ymax_input_main_qty",
+                    key=f"ymax_input_main_qty_{dynamic_input_key_suffix}",
                     step=10.0
                 )
 
@@ -638,7 +640,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                             min_value=0.0,
                             max_value=float(max(100.0, auto_max * 2.0)),
                             value=float(round(sigma_default, 2)),
-                            key="target_input_roll",
+                            key=f"target_input_roll_{dynamic_input_key_suffix}",
                             step=0.01
                         )
                 with adj_col2:
@@ -647,7 +649,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         min_value=0.01,
                         max_value=float(max(1000.0, auto_max * 10.0)),
                         value=float(max(auto_max, target_defect_val * 1.2)),
-                        key="ymax_input_roll",
+                        key=f"ymax_input_roll_{dynamic_input_key_suffix}",
                         step=0.1
                     )
             else:
@@ -656,7 +658,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     min_value=1.0,
                     max_value=float(max(100000.0, auto_max * 10.0)),
                     value=float(max(10.0, auto_max * 1.2)),
-                    key="ymax_input_roll_qty",
+                    key=f"ymax_input_roll_qty_{dynamic_input_key_suffix}",
                     step=10.0
                 )
 
@@ -744,9 +746,9 @@ st.subheader(t["yield_trend_header"])
 st.markdown(f"**{t['target_header']}**")
 target_col1, target_col2 = st.columns(2, gap="large")
 with target_col1:
-    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
+    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1, key="slider_fpy_machine")
 with target_col2:
-    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
+    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1, key="slider_fpy_date")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -758,7 +760,8 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
             min_value=0.0,
             max_value=99.0,
             value=80.0,
-            step=1.0
+            step=1.0,
+            key="yield_min_input_main"
         )
 
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
