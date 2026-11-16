@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **稳健目标线算法再次优化**：彻底修复不良率极低、零值过多导致的目标线计算异常问题，改用稳健均值加标准差上限合理定义，确保目标线回归正常范围。
-        - **单日良率双轴组合图**：保留投入产出柱状图与良率折线组合视图。
-        - **其他核心功能**：分切 `too much` 异常放行、横向责任排行及常驻清洗提示全部完美保留。
+        - **各机台良率图新增机台筛选**：支持在图表上方多选/单选机台，避免多机台交织杂乱。
+        - **不良数量模式自动隐藏目标线**：当单项不良选择“数量推移”时，自动隐藏目标线及其设置项，符合物理实际。
+        - **双轴组合良率图与常驻清洗提示**：保留投入产出柱状图、稳健目标线及分切 `too much` 异常放行。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -96,7 +96,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Robust Target Line Refinement**: Fixed outlier/zero-inflation skewness for defect rate target calculation, ensuring sensible default thresholds.
+        - **Machine Filter for Machine Yield Trend**: Added multi-select machine filter above the chart for focused viewing.
+        - **Auto-hide Target Line for Defect Qty**: Target lines and inputs are automatically hidden when viewing defect quantity trend.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -419,7 +420,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（稳健目标线算法：安全过滤与合理兜底） =================
+# ================= 9. 动态单项不良变化推移图（数量模式自动隐藏目标线） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -453,9 +454,11 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
-            # --- 🛠️ 稳健目标线计算修正：针对零值偏态数据采用稳健基准 ---
             raw_series = daily_defect_agg[y_col].dropna()
-            if not raw_series.empty:
+            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
+            
+            # 只有在“不良率”模式下才计算目标线及显示相关控件
+            if is_rate_mode:
                 init_mean = raw_series.mean()
                 init_std = raw_series.std()
                 upper_bound = init_mean + 3.0 * (init_std if not np.isnan(init_std) else 0.0)
@@ -465,52 +468,58 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 
                 r_mean = robust_series.mean()
                 r_std = robust_series.std()
-                # 如果大部分是0或者均值很小，采用稳健保护下限，避免减出怪异大数或负数
                 if r_mean < 1.0:
                     sigma_default = max(0.01, r_mean + 0.5 * (r_std if not np.isnan(r_std) else 0.1))
                 else:
                     sigma_default = max(0.0, r_mean - 1.0 * (r_std if not np.isnan(r_std) else 0.0))
-            else:
-                sigma_default = 0.01
 
-            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
-            auto_max = max(sigma_default * 1.5, auto_max * 1.25)
-
-            locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
-            
-            adj_col1, adj_col2, adj_col3 = st.columns([1, 1, 2])
-            with adj_col1:
-                if locked_val is not None:
-                    st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
-                    target_defect_val = locked_val
-                else:
-                    target_defect_val = st.number_input(
-                        t["def_target_label"],
-                        min_value=0.0,
-                        max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
-                        value=float(round(sigma_default, 2)),
-                        key="target_input_main",
-                        step=0.01 if is_rate_mode else 1.0
+                auto_max = max(sigma_default * 1.5, auto_max * 1.25)
+                locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
+                
+                adj_col1, adj_col2 = st.columns([1, 1])
+                with adj_col1:
+                    if locked_val is not None:
+                        st.info(f"🔒 Target Locked: {locked_val}%")
+                        target_defect_val = locked_val
+                    else:
+                        target_defect_val = st.number_input(
+                            t["def_target_label"],
+                            min_value=0.0,
+                            max_value=float(max(100.0, auto_max * 2.0)),
+                            value=float(round(sigma_default, 2)),
+                            key="target_input_main",
+                            step=0.01
+                        )
+                with adj_col2:
+                    custom_defect_ymax = st.number_input(
+                        t["y_max_label"],
+                        min_value=0.01,
+                        max_value=float(max(1000.0, auto_max * 10.0)),
+                        value=float(max(auto_max, target_defect_val * 1.2)),
+                        key="ymax_input_main",
+                        step=0.1
                     )
-            with adj_col2:
+            else:
+                # 数量模式：不设目标线，仅保留 Y 轴上限调节
                 custom_defect_ymax = st.number_input(
                     t["y_max_label"],
-                    min_value=0.01 if is_rate_mode else 1.0,
-                    max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
-                    value=float(max(auto_max, target_defect_val * 1.2)),
-                    key="ymax_input_main",
-                    step=0.1 if is_rate_mode else 10.0
+                    min_value=1.0,
+                    max_value=float(max(100000.0, auto_max * 10.0)),
+                    value=float(max(10.0, auto_max * 1.2)),
+                    key="ymax_input_main_qty",
+                    step=10.0
                 )
 
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
-            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
-            fig_def.add_hline(
-                y=target_defect_val,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=target_label_def,
-                annotation_position="top left"
-            )
+            if is_rate_mode:
+                target_label_def = f"Target: {target_defect_val}%" if curr_lang=="en" else f"目标线: {target_defect_val}%"
+                fig_def.add_hline(
+                    y=target_defect_val,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=target_label_def,
+                    annotation_position="top left"
+                )
             fig_def.update_layout(
                 xaxis=dict(type="category", tickangle=-35),
                 yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
@@ -529,7 +538,9 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
 
             raw_series = roll_df[y_col].dropna()
-            if not raw_series.empty:
+            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
+
+            if is_rate_mode:
                 init_mean = raw_series.mean()
                 init_std = raw_series.std()
                 upper_bound = init_mean + 3.0 * (init_std if not np.isnan(init_std) else 0.0)
@@ -543,36 +554,41 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     sigma_default = max(0.01, r_mean + 0.5 * (r_std if not np.isnan(r_std) else 0.1))
                 else:
                     sigma_default = max(0.0, r_mean - 1.0 * (r_std if not np.isnan(r_std) else 0.0))
-            else:
-                sigma_default = 0.01
 
-            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
-            auto_max = max(sigma_default * 1.5, auto_max * 1.25)
-
-            locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
-            
-            adj_col1, adj_col2, adj_col3 = st.columns([1, 1, 2])
-            with adj_col1:
-                if locked_val is not None:
-                    st.info(f"🔒 Target Locked: {locked_val}%" if is_rate_mode else f"🔒 Target Locked: {locked_val}")
-                    target_defect_val = locked_val
-                else:
-                    target_defect_val = st.number_input(
-                        t["def_target_label"],
-                        min_value=0.0,
-                        max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
-                        value=float(round(sigma_default, 2)),
-                        key="target_input_roll",
-                        step=0.01 if is_rate_mode else 1.0
+                auto_max = max(sigma_default * 1.5, auto_max * 1.25)
+                locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
+                
+                adj_col1, adj_col2 = st.columns([1, 1])
+                with adj_col1:
+                    if locked_val is not None:
+                        st.info(f"🔒 Target Locked: {locked_val}%")
+                        target_defect_val = locked_val
+                    else:
+                        target_defect_val = st.number_input(
+                            t["def_target_label"],
+                            min_value=0.0,
+                            max_value=float(max(100.0, auto_max * 2.0)),
+                            value=float(round(sigma_default, 2)),
+                            key="target_input_roll",
+                            step=0.01
+                        )
+                with adj_col2:
+                    custom_defect_ymax = st.number_input(
+                        t["y_max_label"],
+                        min_value=0.01,
+                        max_value=float(max(1000.0, auto_max * 10.0)),
+                        value=float(max(auto_max, target_defect_val * 1.2)),
+                        key="ymax_input_roll",
+                        step=0.1
                     )
-            with adj_col2:
+            else:
                 custom_defect_ymax = st.number_input(
                     t["y_max_label"],
-                    min_value=0.01 if is_rate_mode else 1.0,
-                    max_value=float(max(1000.0 if is_rate_mode else 100000.0, auto_max * 10.0)),
-                    value=float(max(auto_max, target_defect_val * 1.2)),
-                    key="ymax_input_roll",
-                    step=0.1 if is_rate_mode else 10.0
+                    min_value=1.0,
+                    max_value=float(max(100000.0, auto_max * 10.0)),
+                    value=float(max(10.0, auto_max * 1.2)),
+                    key="ymax_input_roll_qty",
+                    step=10.0
                 )
 
             fig_def = px.line(
@@ -582,14 +598,15 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 color="MachineName" if "MachineName" in roll_df.columns else None,
                 markers=True
             )
-            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
-            fig_def.add_hline(
-                y=target_defect_val,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=target_label_def,
-                annotation_position="top left"
-            )
+            if is_rate_mode:
+                target_label_def = f"Target: {target_defect_val}%" if curr_lang=="en" else f"目标线: {target_defect_val}%"
+                fig_def.add_hline(
+                    y=target_defect_val,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=target_label_def,
+                    annotation_position="top left"
+                )
             fig_def.update_layout(
                 xaxis=dict(title=t["x_time"]),
                 yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
@@ -649,7 +666,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区 =================
+# ================= 10. 良率推移趋势专区（新增机台过滤控件） =================
 st.subheader(t["yield_trend_header"])
 
 st.markdown(f"**{t['target_header']}**")
@@ -675,13 +692,27 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
 
     if not trend_raw_df.empty:
-        # 图表 1：各机台单卷良率推移走势
+        # --- 🛠️ 1. 各机台单卷良率推移走势（增加机台筛选器） ---
         st.markdown(f"**{t['t_m_trend']}**")
+        
+        all_machines = sorted(trend_raw_df["MachineName"].dropna().astype(str).unique().tolist()) if "MachineName" in trend_raw_df.columns else []
+        
+        if all_machines:
+            selected_machines = st.multiselect(
+                "🎛️ 选择要查看的机台（支持多选/全选）：",
+                options=all_machines,
+                default=all_machines,
+                key="trend_machine_multiselect"
+            )
+            filtered_trend_df = trend_raw_df[trend_raw_df["MachineName"].astype(str).isin(selected_machines)] if selected_machines else trend_raw_df
+        else:
+            filtered_trend_df = trend_raw_df
+
         fig_machine_trend = px.line(
-            trend_raw_df,
+            filtered_trend_df,
             x="TestDate",
             y="FPY",
-            color="MachineName" if "MachineName" in trend_raw_df.columns else None,
+            color="MachineName" if "MachineName" in filtered_trend_df.columns else None,
             markers=True
         )
         target_label_m = f"Target: {target_fpy_machine}%" if curr_lang=="en" else f"目标线: {target_fpy_machine}%"
@@ -702,7 +733,7 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 图表 2：单日投入产出柱状图 + 单日平均良率折线组合图
+        # --- 2. 单日投入产出柱状图 + 单日平均良率折线组合图 ---
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
