@@ -37,9 +37,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **极端录入错误高亮校验**：新增对“产出远大于投入（如投入3万产出5万）”等极端不合理录入错误的自动检测与高亮明细罗列，方便人员上报修改。
-        - **图表交互与防误触优化**：默认工具设为平移（Pan），关闭滚轮缩放，消除误触烦恼。
-        - **UI 国际化与数据准确性**：完美切换全英文界面，100% 保留底层业务数据准确性。
+        - **业务逻辑精准分流**：涂布工序异常自动修正执行；分切来料多（too much）保留原数据执行；同时对极端录入错误进行弹窗警示与明细罗列。
+        - **稳定性修复**：移除易报错的样式渐变，确保数据表格完美平稳渲染。
+        - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -113,7 +113,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Extreme Input/Output Error Highlighting**: Automatically detects and highlights extreme input/output discrepancies (e.g., input 30k, output 50k) for easy reporting and correction.
+        - **Business Logic Branching**: Coating errors auto-corrected; Slitting 'too much' records preserved; extreme input errors alerted and listed.
+        - **Stability Fix**: Removed style gradients to ensure error-free table rendering.
         - **Default Pan & Scroll Lock**: Default to Pan tool with scroll zoom disabled.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
@@ -235,7 +236,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 增强型数据清洗（含极端输入产出错误检测与高亮警示） =================
+# ================= 4. 增强型数据清洗与规则分流 =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -253,8 +254,10 @@ extreme_error_df = pd.DataFrame()
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
     
+    # 识别涂布工序
     is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(False, index=df.index)
     
+    # 识别来料多 (too much)
     has_too_much = pd.Series(False, index=df.index)
     for col_c in df.columns:
         if "too much" in col_c.lower() or "toomuch" in col_c.lower():
@@ -263,54 +266,55 @@ if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns
         elif df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
-    # 1. 涂布工序 或 纯逻辑不合理的异常（如投入3万产出5万这种无 too much 支撑的巨大偏差）判定为极端录入错误
-    extreme_error_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
-    
-    # 提取这些极端错误记录用于高亮展示供人员上报修改
+    # 规则 1：涂布工序且产出大于投入 -> 直接自动修正执行
+    coating_fix_mask = raw_abnormal_mask & is_coating
+    fixed_count = int(coating_fix_mask.sum())
+    if fixed_count > 0:
+        df.loc[coating_fix_mask, "OutQty"] = df.loc[coating_fix_mask, "INQty"] - df.loc[coating_fix_mask, "ScrapQty"]
+        df.loc[df["OutQty"] < 0, "OutQty"] = 0
+        if has_fpy:
+            valid_in = coating_fix_mask & (df["INQty"] > 0)
+            df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
+            df.loc[coating_fix_mask & (df["INQty"] <= 0), "FPY"] = 0.0
+
+    # 规则 2：分切或其他工序含有 too much 来料多 -> 保留原数据继续执行
+    preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
+    preserved_too_much_count = int(preserved_too_much_mask.sum())
+
+    # 规则 3：既不是涂布、又没有 too much 支撑的极端不合理异常（如输错成投入3万产出5万） -> 警示并罗列明细供上报修改
+    extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
     if extreme_error_mask.sum() > 0:
         extreme_error_df = df[extreme_error_mask].copy()
 
-    fixable_mask = extreme_error_mask
-    preserved_mask = raw_abnormal_mask & (~fixable_mask)
-
-    fixed_count = int(fixable_mask.sum())
-    preserved_too_much_count = int(preserved_mask.sum())
-
+# 顶部常驻提示
+if fixed_count > 0 or preserved_too_much_count > 0 or not extreme_error_df.empty:
+    msg_parts = []
     if fixed_count > 0:
-        df.loc[fixable_mask, "OutQty"] = df.loc[fixable_mask, "INQty"] - df.loc[fixable_mask, "ScrapQty"]
-        df.loc[df["OutQty"] < 0, "OutQty"] = 0
-        
-        if has_fpy:
-            valid_in = fixable_mask & (df["INQty"] > 0)
-            df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
-            df.loc[fixable_mask & (df["INQty"] <= 0), "FPY"] = 0.0
-
-# 顶部常驻提示与极端错误高亮表格展示
-if fixed_count > 0 or preserved_too_much_count > 0:
+        msg_parts.append(f"涂布工序已自动修正 **{fixed_count}** 条异常记录")
+    if preserved_too_much_count > 0:
+        msg_parts.append(f"分切来料多（`too much`）已保留原数据 **{preserved_too_much_count}** 条继续执行")
+    if not extreme_error_df.empty:
+        msg_parts.append(f"检测到 **{len(extreme_error_df)}** 条疑似录入错误的极端异常数据")
+    
     if curr_lang == "zh":
-        msg_parts = []
-        if fixed_count > 0:
-            msg_parts.append(f"已拦截并修正 **{fixed_count}** 条极端不合理记录（如 `产出远大于投入` 等录入错误）")
-        if preserved_too_much_count > 0:
-            msg_parts.append(f"已智能保留放行 **{preserved_too_much_count}** 条分切碾压来料过多（`too much`）的真实异常记录")
-        st.warning("⚠️ **数据逻辑闭环校验与录入异常警示**：" + "；".join(msg_parts) + "。")
+        st.warning("⚠️ **MES 数据智能校验与分流报告**：" + "；".join(msg_parts) + "。")
     else:
-        st.warning(f"⚠️ **Data Integrity Alert**: Auto-corrected **{fixed_count}** extreme discrepancies (e.g., Output >> Input), and preserved **{preserved_too_much_count}** legitimate slitting over-input records.")
+        st.warning(f"⚠️ **Data Validation & Routing**: " + "；".join(msg_parts))
 else:
     if curr_lang == "zh":
         st.success("✅ **数据逻辑校验通过**：当前数据集中未发现 `投入 < 产出` 的异常偏差记录。")
     else:
-        st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected in the current dataset.")
+        st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected.")
 
-# 如果检测到极端录入错误，高亮列出明细表格供人员上报修改
+# 如果检测到极端录入错误，直接平稳罗列明细表格供核对上报
 if not extreme_error_df.empty:
     if curr_lang == "zh":
-        st.error(f"🚨 **发现 {len(extreme_error_df)} 条疑似 MES 录入错误的数据（如投入远小于产出）！请核对以下明细并截图上报 MES 管理员进行修改：**")
+        st.error(f"🚨 **发现 {len(extreme_error_df)} 条极端不合理数据（无 too much 支撑的产出远大于投入）！请核对以下明细并截图上报 MES 管理员修改：**")
     else:
-        st.error(f"🚨 **Detected {len(extreme_error_df)} potential MES input error records! Please review the highlighted table below and report to admin:**")
+        st.error(f"🚨 **Detected {len(extreme_error_df)} extreme error records (Output >> Input without 'too much'). Please review and report:**")
     
     highlight_cols = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "PersonName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in extreme_error_df.columns]
-    st.dataframe(extreme_error_df[highlight_cols].style.background_gradient(subset=["INQty", "OutQty"], cmap="Reds"), use_container_width=True, hide_index=True)
+    st.dataframe(extreme_error_df[highlight_cols], use_container_width=True, hide_index=True)
     st.markdown("---")
 
 # ================= 5. 动态不良矩阵识别 =================
