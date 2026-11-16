@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **机台与操作者贡献度直观对比**：将繁杂的多维度折线图优化为**横向柱状对比图**，一目了然看出哪个机台/操作者不良占比最高。
-        - **稳健目标线算法升级**：目标线计算前自动过滤掉 $\mu + 3\sigma$ 以外的极端离群值，真实数据展示完整保留。
-        - **分切碾压异常智能放行**：保留分切工序中含 `too much` 等碾压来料过多的真实异常。
+        - **单日良率升级为双轴组合图**：将单日平均良率图升级为**投入/产出柱状图 + 良率折线图**组合视图，产能规模与良率波动一目了然。
+        - **机台与操作者贡献度直观对比**：保留单项不良横向柱状排行图，快速锁定责任机台或操作者。
+        - **稳健目标线与清洗逻辑保留**：自动剔除 $\mu + 3\sigma$ 离群值计算目标线，保留分切 `too much` 真实异常。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -62,7 +62,7 @@ LANG_DICT = {
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
         "defect_trend_header": "🔍 单项不良变化推移图",
-        "defect_multi_header": "📊 单项不良责任归属快速对比（机台/操作者占比排行）",
+        "defect_multi_header": "📊 单项不良责任归属快速对比",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -75,12 +75,16 @@ LANG_DICT = {
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势",
-        "t_d_trend": "📅 2. 单日平均良率变化推移走势",
+        "t_d_trend": "📅 2. 单日投入产出与平均良率组合推移走势",
         "table_detail": "📋 生产批次明细数据表（当前筛选结果）",
         "x_time": "生产时间",
         "x_date": "生产日期",
         "y_roll_fpy": "单卷良率 FPY (%)",
         "y_daily_fpy": "单日平均良率 (%)",
+        "y_qty_axis": "投入 / 产出数量 (Qty)",
+        "legend_in": "总投入 (INQty)",
+        "legend_out": "总产出 (OutQty)",
+        "legend_fpy": "单日平均良率 (%)",
     },
     "en": {
         "title": "📊 Tenpower electrode dashboard",
@@ -92,8 +96,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Intuitive Ranking Comparison**: Replaced complex multi-line charts with clean horizontal bar charts showing machine/operator defect share.
-        - **Robust Target Line & Slitting Preservation**: Maintained robust Mean-1Sigma calculation and 'too much' anomaly preservation.
+        - **Daily Combo Chart Upgrade**: Upgraded daily yield trend to a dual-axis Input/Output Bar + Yield Line combo chart.
+        - **All Core Features Preserved**: Maintained robust target lines, slitting anomaly preservation, and horizontal ranking bars.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -136,12 +140,16 @@ LANG_DICT = {
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
-        "t_d_trend": "📅 2. Daily Average Yield Trend",
+        "t_d_trend": "📅 2. Daily Input/Output & Avg Yield Combo Trend",
         "table_detail": "📋 Production Batch Detail Table",
         "x_time": "Production Time",
         "x_date": "Production Date",
         "y_roll_fpy": "Roll Yield FPY (%)",
         "y_daily_fpy": "Daily Avg Yield (%)",
+        "y_qty_axis": "Input / Output Qty",
+        "legend_in": "Total Input (INQty)",
+        "legend_out": "Total Output (OutQty)",
+        "legend_fpy": "Daily Avg Yield (%)",
     }
 }
 
@@ -567,7 +575,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 9.1 单项不良责任归属快速对比（横向柱状排行替代繁杂折线） =================
+# ================= 9.1 单项不良责任归属快速对比（横向柱状排行） =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
@@ -579,7 +587,6 @@ if current_active_defects and len(display_df) > 0:
 
     dim_field = "MachineName" if "MachineName" in rank_dimension else "PersonName"
     if dim_field in display_df.columns:
-        # 按机台或操作者直接做总体聚合汇总，计算总不良数及占总不良的百分比
         rank_df = display_df.groupby(dim_field, as_index=False).agg({
             rank_selected_defect: "sum",
             "INQty": "sum"
@@ -592,7 +599,6 @@ if current_active_defects and len(display_df) > 0:
             0.0
         )
         
-        # 降序排序，让不良最多的排在最上面（横向柱状图习惯）
         rank_df = rank_df.sort_values(rank_selected_defect, ascending=True)
 
         fig_rank = px.bar(
@@ -607,7 +613,7 @@ if current_active_defects and len(display_df) > 0:
         )
         fig_rank.update_traces(textposition="outside")
         fig_rank.update_layout(
-            xaxis=dict(title="不良数量合计 (Qty)", range=[0, rank_df[rank_selected_defect].max() * 1.30]),
+            xaxis=dict(title="不良数量合计 (Qty)", range=[0, max(1.0, rank_df[rank_selected_defect].max() * 1.30)]),
             yaxis=dict(title=dim_field),
             coloraxis_showscale=False,
             height=400,
@@ -672,31 +678,75 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 图表 2：单日平均良率推移走势
+        # 图表 2：单日投入产出柱状图 + 单日平均良率折线组合图
         st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
-        daily_agg = daily_df.groupby("DayStr", as_index=False)["FPY"].mean().sort_values("DayStr")
+        
+        daily_agg = daily_df.groupby("DayStr", as_index=False).agg(
+            FPY=("FPY", "mean"),
+            INQty=("INQty", "sum"),
+            OutQty=("OutQty", "sum")
+        ).sort_values("DayStr")
         
         global_daily_yield_agg = daily_agg.copy()
 
-        fig_date_trend = px.line(
-            daily_agg,
-            x="DayStr",
-            y="FPY",
-            markers=True,
-            text=daily_agg["FPY"].apply(lambda v: f"{v:.2f}%")
-        )
-        fig_date_trend.update_traces(textposition="top center", cliponaxis=False)
+        fig_date_combo = go.Figure()
+
+        # 左轴柱状图 1：总投入 (INQty)
+        fig_date_combo.add_trace(go.Bar(
+            x=daily_agg["DayStr"],
+            y=daily_agg["INQty"],
+            name=t["legend_in"],
+            marker_color="rgba(99, 110, 250, 0.72)",
+            yaxis="y",
+            offsetgroup=0
+        ))
+
+        # 左轴柱状图 2：总产出 (OutQty)
+        fig_date_combo.add_trace(go.Bar(
+            x=daily_agg["DayStr"],
+            y=daily_agg["OutQty"],
+            name=t["legend_out"],
+            marker_color="rgba(0, 204, 150, 0.75)",
+            yaxis="y",
+            offsetgroup=1
+        ))
+
+        # 右轴折线图：单日平均良率 (FPY)
+        fig_date_combo.add_trace(go.Scatter(
+            x=daily_agg["DayStr"],
+            y=daily_agg["FPY"],
+            name=t["legend_fpy"],
+            mode="lines+markers+text",
+            marker=dict(color="#FFA15A", size=8),
+            line=dict(color="#FFA15A", width=3),
+            text=daily_agg["FPY"].apply(lambda v: f"{v:.2f}%"),
+            textposition="top center",
+            cliponaxis=False,
+            yaxis="y2"
+        ))
+
+        # 右轴目标线 (基于 y2 坐标系添加水平虚线及左上角注释)
         target_label_d = f"Target: {target_fpy_date}%" if curr_lang=="en" else f"目标线: {target_fpy_date}%"
-        fig_date_trend.add_hline(
-            y=target_fpy_date, 
-            line_dash="dash", 
-            line_color="red", 
-            annotation_text=target_label_d, 
-            annotation_position="top left"
+        fig_date_combo.add_shape(
+            type="line",
+            xref="paper", x0=0, x1=1,
+            yref="y2", y0=target_fpy_date, y1=target_fpy_date,
+            line=dict(color="red", width=2, dash="dash")
         )
-        fig_date_trend.update_layout(
+        fig_date_combo.add_annotation(
+            xref="paper", x=0.01,
+            yref="y2", y=target_fpy_date,
+            text=target_label_d,
+            showarrow=False,
+            yshift=10,
+            font=dict(color="red", size=12)
+        )
+
+        max_qty_bar = max(daily_agg["INQty"].max(), daily_agg["OutQty"].max()) if not daily_agg.empty else 10
+        fig_date_combo.update_layout(
+            barmode="group",
             xaxis=dict(
                 title=t["x_date"],
                 type="category",
@@ -706,11 +756,29 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
                 tickangle=-35,
                 tickfont=dict(size=11)
             ),
-            yaxis=dict(title=t["y_daily_fpy"], range=[custom_fpy_min, 100.5]),
-            height=430,
-            margin=dict(t=30, b=75)
+            yaxis=dict(
+                title=t["y_qty_axis"],
+                range=[0, max(10, max_qty_bar * 1.25)],
+                showgrid=True
+            ),
+            yaxis2=dict(
+                title=t["y_daily_fpy"],
+                overlaying="y",
+                side="right",
+                range=[custom_fpy_min, 100.8],
+                showgrid=False
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            height=460,
+            margin=dict(t=45, b=75)
         )
-        st.plotly_chart(fig_date_trend, use_container_width=True)
+        st.plotly_chart(fig_date_combo, use_container_width=True)
 
 st.markdown("---")
 
