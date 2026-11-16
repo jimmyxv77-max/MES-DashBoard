@@ -18,6 +18,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# 统一图表配置：将默认交互拖拽模式设为平移 (pan)，避免误触放大镜丢失坐标
+DEFAULT_CHART_CONFIG = {
+    "dragmode": "pan",
+    "scrollZoom": True,
+    "displayModeBar": True
+}
+
 # ================= 语言词典配置 (UI 标题/提示全双语，业务数据源原样保留) =================
 LANG_DICT = {
     "zh": {
@@ -30,8 +37,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **UI 纯英文与业务数据保留**：切换英文时完美翻译所有界面标题、控件及图表抬头，同时 100% 保留 MES 底层业务数据的原本字符（如机台、工序、不良项名称），确保数据准确性。
-        - **双过滤与智能隐藏目标线**：单项不良和良率推移均支持机台多选筛选；数量模式自动隐藏目标线。
+        - **图表默认交互优化**：所有图表默认工具统一设为**“平移 (Pan)”**（十字移动按钮），彻底杜绝误触放大镜导致坐标丢失的烦恼。
+        - **UI 国际化与数据准确性**：完美切换全英文界面，100% 保留底层业务数据准确性。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -105,8 +112,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **UI Localization & Data Integrity**: Fully translated UI titles, labels, and chart headers into English while 100% preserving raw MES business data content for calculation and accuracy.
-        - **Flexible Filtering & Auto-hide Targets**: Machine multi-select filters and intelligent target line visibility.
+        - **Default Pan Tool**: All charts now default to the **Pan** (cross/move) tool instead of zoom, preventing accidental coordinate loss.
+        - **UI Localization & Data Integrity**: Fully translated UI titles, labels, and chart headers into English while 100% preserving raw MES business data content.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -416,9 +423,10 @@ if current_active_defects and len(display_df) > 0:
             yaxis=dict(title="Defect Qty", range=[0, max_bar * 1.30]),
             yaxis2=dict(title="Cum. Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
             height=500,
-            margin=dict(t=40, b=80, l=50, r=50)
+            margin=dict(t=40, b=80, l=50, r=50),
+            dragmode="pan"
         )
-        st.plotly_chart(fig_pareto, use_container_width=True)
+        st.plotly_chart(fig_pareto, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
         ratio_mode = st.radio(t["radio_share"], [t["share_1"], t["share_2"]], horizontal=True)
         target_col = t["col_s_defect"] if t["share_1"] in ratio_mode else t["col_s_in"]
@@ -431,8 +439,13 @@ if current_active_defects and len(display_df) > 0:
             color=target_col, color_continuous_scale=color_scale
         )
         fig_share.update_traces(textposition="outside")
-        fig_share.update_layout(xaxis=dict(range=[0, share_sorted[target_col].max() * 1.30]), coloraxis_showscale=False, height=400)
-        st.plotly_chart(fig_share, use_container_width=True)
+        fig_share.update_layout(
+            xaxis=dict(range=[0, share_sorted[target_col].max() * 1.30]),
+            coloraxis_showscale=False,
+            height=400,
+            dragmode="pan"
+        )
+        st.plotly_chart(fig_share, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
         stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
         st.dataframe(stat_table.style.format({t["col_count"]: "{:,.1f}", t["col_s_defect"]: "{:.2f}%", t["col_s_in"]: "{:.2f}%", t["col_cum"]: "{:.2f}%"}), use_container_width=True, hide_index=True)
@@ -553,9 +566,10 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             fig_def.update_layout(
                 xaxis=dict(type="category", tickangle=-35),
                 yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
-                height=430
+                height=430,
+                dragmode="pan"
             )
-            st.plotly_chart(fig_def, use_container_width=True)
+            st.plotly_chart(fig_def, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
         else:
             roll_df = defect_trend_df.copy()
@@ -640,13 +654,14 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             fig_def.update_layout(
                 xaxis=dict(title=t["x_time"]),
                 yaxis=dict(title=y_axis_title, range=[0, custom_defect_ymax]),
-                height=430
+                height=430,
+                dragmode="pan"
             )
-            st.plotly_chart(fig_def, use_container_width=True)
+            st.plotly_chart(fig_def, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
 st.markdown("---")
 
-# ================= 9.1 单项不良责任归属快速对比（保留原始业务字段，翻译UI标题） =================
+# ================= 9.1 单项不良责任归属快速对比 =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
@@ -689,9 +704,10 @@ if current_active_defects and len(display_df) > 0:
             yaxis=dict(title=dim_field),
             coloraxis_showscale=False,
             height=400,
-            margin=dict(t=40, b=40, l=50, r=50)
+            margin=dict(t=40, b=40, l=50, r=50),
+            dragmode="pan"
         )
-        st.plotly_chart(fig_rank, use_container_width=True)
+        st.plotly_chart(fig_rank, use_container_width=True, config=DEFAULT_CHART_CONFIG)
     else:
         st.warning(f"⚠️ Column **{dim_field}** not found in dataset." if curr_lang=="en" else f"⚠️ 当前数据源中未检测到列 **{dim_field}**，无法生成责任归属排行。")
 
@@ -757,9 +773,10 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
             xaxis=dict(title=t["x_time"]),
             yaxis=dict(title=t["y_roll_fpy"], range=[custom_fpy_min, 100.5]),
             height=430,
-            margin=dict(t=30, b=30)
+            margin=dict(t=30, b=30),
+            dragmode="pan"
         )
-        st.plotly_chart(fig_machine_trend, use_container_width=True)
+        st.plotly_chart(fig_machine_trend, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -856,9 +873,10 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
                 x=1
             ),
             height=460,
-            margin=dict(t=45, b=75)
+            margin=dict(t=45, b=75),
+            dragmode="pan"
         )
-        st.plotly_chart(fig_date_combo, use_container_width=True)
+        st.plotly_chart(fig_date_combo, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
 st.markdown("---")
 
