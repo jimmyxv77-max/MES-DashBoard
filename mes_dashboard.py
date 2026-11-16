@@ -6,6 +6,15 @@ import plotly.graph_objects as go
 import io
 from openpyxl.chart import BarChart, LineChart, Reference
 
+# ================= 🎛️ 不良目标线锁死接口 (预留配置区) =================
+# 说明：如果某个不良项目有固定的质量目标线（%，占总投入比例或不良率），可以直接在这里配置数值。
+# 如果对应项目键值为 None 或留空，则在页面上由滑块自由拖动控制；一旦填入数值，则自动锁定为固定目标。
+LOCKED_DEFECT_TARGETS = {
+    # 示例格式（未来固定后可解开注释并填写固定值，如 0.5 代表 0.5%）：
+    # "Calendaring Incoming Shortage": 0.5,
+    # "Slitting Width NG": 0.3,
+}
+
 # 1. 页面基本配置
 st.set_page_config(
     page_title="Tenpower electrode dashboard",
@@ -25,11 +34,10 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **Excel 图表完美呈现**：单项不良趋势在 Excel 中采用标准柱状图呈现，彻底消除折线分段变色问题。
+        - **单项不良目标线功能**：新增单项不良目标线设置（支持自由拖动，并预留了锁死目标线的硬编码接口）。
+        - **Excel 图表完美呈现**：单项不良与良率趋势在 Excel 中采用标准图表呈现。
         - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
-        - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示。
-        - **质量目标线调优**：默认值升级为 **99.0%**（支持 60%~100% 自由拖动）。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -58,7 +66,7 @@ LANG_DICT = {
         "col_s_defect": "占总不良比例",
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
-        "defect_trend_header": "🔍 单项不良变化推移图（数量推移 & 不良率推移）",
+        "defect_trend_header": "🔍 单项不良变化推移图（含自定义/锁死目标线）",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -67,6 +75,7 @@ LANG_DICT = {
         "m_count": "不良数量推移",
         "m_rate": "不良率推移 (% 总投入)",
         "y_max_label": "🎚️ 单项不良 Y 轴上限：",
+        "def_target_label": "🎯 单项不良目标线阈值设置：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含目标线）",
@@ -87,11 +96,10 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Clean Excel Charts**: Single defect trends presented via standard Excel column charts to eliminate multi-color line issues.
+        - **Defect Target Line feature**: Added target line configuration for individual defects (supports free slider tuning with locked-target override interface).
+        - **Clean Excel Charts**: Standardized chart presentations.
         - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
-        - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
-        - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width.
-        - **Target Line Tuning**: Default yield target upgraded to **99.0%** (adjustable from 60% to 100%).
+        - **Multi-Process Support**: Tailored for electrode manufacturing workflows.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -120,7 +128,7 @@ LANG_DICT = {
         "col_s_defect": "Defect Share",
         "col_s_in": "Input Loss Rate",
         "col_cum": "Cum. Share",
-        "defect_trend_header": "🔍 Single Defect Trend Analysis (Quantity & Defect Rate)",
+        "defect_trend_header": "🔍 Single Defect Trend Analysis (with Target Line)",
         "def_sel": "🎯 1. Select Defect Item:",
         "def_view": "📊 2. Select View Granularity:",
         "view_daily": "Daily Summary Trend",
@@ -129,6 +137,7 @@ LANG_DICT = {
         "m_count": "Defect Quantity Trend",
         "m_rate": "Defect Rate Trend (% of Input)",
         "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
+        "def_target_label": "🎯 Single Defect Target Threshold:",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend (with Target Line)",
@@ -141,7 +150,6 @@ LANG_DICT = {
     }
 }
 
-# 顶部显眼位置放置语言切换按钮
 top_col1, top_col2 = st.columns([4, 1])
 with top_col2:
     selected_lang_name = st.selectbox("🌐 Language / 语言", ["中文 (Chinese)", "English"], index=0)
@@ -379,7 +387,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图 =================
+# ================= 9. 动态单项不良变化推移图（含目标线支持） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -406,7 +414,36 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
         global_daily_defect_agg = daily_defect_agg.copy()
 
         y_col = "DefectRate" if is_rate_mode else selected_defect
+        auto_max = float(daily_defect_agg[y_col].max()) if not daily_defect_agg[y_col].empty else 1.0
+        auto_max = max(0.5 if is_rate_mode else 1.0, auto_max * 1.25)
+
+        # 检查该单项不良是否在硬编码中被锁死
+        locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
+        
+        adj_col1, adj_col2 = st.columns([1, 3])
+        with adj_col1:
+            if locked_val is not None:
+                st.info(f"🔒 Target Locked: {locked_val}")
+                target_defect_val = locked_val
+            else:
+                target_defect_val = st.number_input(
+                    t["def_target_label"],
+                    min_value=0.0,
+                    max_value=float(max(1000.0, auto_max * 2.0)),
+                    value=float(auto_max * 0.5),
+                    step=0.01 if is_rate_mode else 1.0
+                )
+
         fig_def_daily = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
+        target_label_def = f"Target: {target_defect_val}" if curr_lang=="en" else f"目标线: {target_defect_val}"
+        fig_def_daily.add_hline(
+            y=target_defect_val,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=target_label_def,
+            annotation_position="top left"
+        )
+        fig_def_daily.update_layout(yaxis=dict(range=[0, max(auto_max, target_defect_val * 1.2)]), height=430)
         st.plotly_chart(fig_def_daily, use_container_width=True)
 
 st.markdown("---")
@@ -429,12 +466,11 @@ if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与【完美规范】的 Excel 导出 =================
+# ================= 11. 生产批次明细数据表与 Excel 导出 =================
 st.subheader(t["table_detail"])
 
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-    # 1. 汇总 Sheet
     summary_kpi_data = pd.DataFrame({
         "Metric Item": ["Total Production Batches", "Total Input Qty", "Total Output Qty", "Total Scrap Qty", "Average Roll Yield FPY"],
         "Value": [len(display_df), total_in_qty, total_out_qty, total_scrap_qty, f"{avg_fpy:.2f}%" if has_fpy else f"{overall_yield:.2f}%"]
@@ -446,23 +482,18 @@ with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
         pd.DataFrame([["=== Pareto Defect Statistics ==="]]).to_excel(writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1)
         global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
 
-    # 2. 单项不良趋势 Sheet（改为标准的柱状图展示，100% 解决 Excel 颜色分段错乱问题）
     if not global_daily_defect_agg.empty:
         global_daily_defect_agg.to_excel(writer, sheet_name="Defect Trend Analysis", index=False)
 
-    # 3. 良率推移趋势 Sheet
     if not global_daily_yield_agg.empty:
         global_daily_yield_agg.to_excel(writer, sheet_name="Yield Trend Analysis", index=False)
 
-    # 4. 原始明细 Sheet
     display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
-# 加载 workbook 将单项不良趋势改为柱状图，直观且绝不出错
 output_buffer.seek(0)
 from openpyxl import load_workbook
 wb = load_workbook(output_buffer)
 
-# A. 帕累托柱状图
 if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     ws_sum = wb["Dashboard Summary"]
     start_r = len(summary_kpi_data) + 4
@@ -481,7 +512,6 @@ if "Dashboard Summary" in wb.sheetnames and not global_defect_sums.empty:
     chart_bar.set_categories(cats_bar)
     ws_sum.add_chart(chart_bar, "G2")
 
-# B. 单项不良趋势：采用标准 BarChart（柱状图），告别奇葩彩虹折线
 if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empty:
     ws_def = wb["Defect Trend Analysis"]
     max_r_def = len(global_daily_defect_agg) + 1
@@ -504,7 +534,6 @@ if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empt
     chart_col_def.legend = None
     ws_def.add_chart(chart_col_def, "F2")
 
-# C. 良率趋势：采用标准 BarChart（柱状图），确保在各类 Excel 版本中都绝对完美显示
 if "Yield Trend Analysis" in wb.sheetnames and not global_daily_yield_agg.empty:
     ws_yld = wb["Yield Trend Analysis"]
     max_r_yld = len(global_daily_yield_agg) + 1
