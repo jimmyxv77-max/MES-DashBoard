@@ -40,7 +40,7 @@ LANG_DICT = {
         "radio_share": "选择柱状图展示维度：",
         "share_1": "占总不良比例 (%)",
         "share_2": "占总投入比例 (%) [损失率]",
-        "table_header": "📋 异常数量与双维度比例对照表",
+        "table_header": "📋 异常数量与双维度比例对照表（全宽完整显示）",
         "col_defect": "不良项目",
         "col_count": "不良数量",
         "col_s_defect": "占总不良比例",
@@ -92,7 +92,7 @@ LANG_DICT = {
         "radio_share": "Select Bar Chart Metric:",
         "share_1": "Defect Share (%)",
         "share_2": "Loss Rate of Total Input (%)",
-        "table_header": "📋 Defect Quantity & Dual-Dimension Share Table",
+        "table_header": "📋 Defect Quantity & Dual-Dimension Share Table (Full Width)",
         "col_defect": "Defect Item",
         "col_count": "Defect Qty",
         "col_s_defect": "Defect Share",
@@ -144,7 +144,7 @@ if uploaded_file is None:
     st.info(t["import_info"])
     st.markdown("""
     ### 💡 Dashboard Highlights:
-    * **Full-Width Layout**: Pareto chart & separate full-width yield trends for clear visualization.
+    * **Full-Width Layout**: Pareto chart, ranking chart, and data table all optimized in full width for clear, zero-scroll visualization.
     * **Interactive Targets**: Quality target sliders placed directly above yield analysis for easy adjustment (60%~100%, default 99%).
     * **Bilingual Support**: Instant switch between Chinese and English via top-right selector.
     """)
@@ -292,7 +292,7 @@ if fixed_count > 0:
 
 st.markdown("---")
 
-# ================= 8. 不良分析专区：帕累托图独立整行展示 =================
+# ================= 8. 不良分析专区：全宽帕累托图与全宽明细表 =================
 current_active_defects = [c for c in DYNAMIC_DEFECT_COLS if c in display_df.columns]
 
 st.subheader(t["pareto_header"])
@@ -317,6 +317,7 @@ if current_active_defects and len(display_df) > 0:
         else:
             defect_sums[t["col_s_in"]] = 0.0
 
+        # 8.1 帕累托图（全宽）
         st.markdown(f"**{t['pareto_title']}**")
         
         fig_pareto = go.Figure()
@@ -360,57 +361,56 @@ if current_active_defects and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        sub_col1, sub_col2 = st.columns([1.1, 1.3], gap="large")
+        # 8.2 单项排行条形图（全宽展示）
+        ratio_mode = st.radio(
+            t["radio_share"],
+            [t["share_1"], t["share_2"]],
+            horizontal=True
+        )
+        
+        target_col = t["col_s_defect"] if t["share_1"] in ratio_mode else t["col_s_in"]
+        color_scale = "Oranges" if t["share_1"] in ratio_mode else "Purples"
+        chart_title = f"{target_col} Ranking (%)" if curr_lang=="en" else f"各异常{target_col}排行 (%)"
+        
+        st.markdown(f"**{chart_title}**")
+        
+        share_sorted = defect_sums.sort_values(target_col, ascending=True)
+        fig_share = px.bar(
+            share_sorted,
+            x=target_col,
+            y=t["col_defect"],
+            orientation="h",
+            text=share_sorted[target_col].apply(lambda v: f"{v:.2f}%"),
+            color=target_col,
+            color_continuous_scale=color_scale
+        )
+        max_share = share_sorted[target_col].max() if share_sorted[target_col].max() > 0 else 1
+        fig_share.update_traces(textposition="outside", cliponaxis=False)
+        fig_share.update_layout(
+            title="",
+            xaxis=dict(title=f"{target_col} (%)", range=[0, max_share * 1.30]),
+            yaxis=dict(title=""),
+            coloraxis_showscale=False,
+            height=400,
+            margin=dict(t=10, b=20, l=10, r=45)
+        )
+        st.plotly_chart(fig_share, use_container_width=True)
 
-        with sub_col1:
-            ratio_mode = st.radio(
-                t["radio_share"],
-                [t["share_1"], t["share_2"]],
-                horizontal=True
-            )
-            
-            target_col = t["col_s_defect"] if t["share_1"] in ratio_mode else t["col_s_in"]
-            color_scale = "Oranges" if t["share_1"] in ratio_mode else "Purples"
-            chart_title = f"{target_col} Ranking (%)" if curr_lang=="en" else f"各异常{target_col}排行 (%)"
-            
-            st.markdown(f"**{chart_title}**")
-            
-            share_sorted = defect_sums.sort_values(target_col, ascending=True)
-            fig_share = px.bar(
-                share_sorted,
-                x=target_col,
-                y=t["col_defect"],
-                orientation="h",
-                text=share_sorted[target_col].apply(lambda v: f"{v:.2f}%"),
-                color=target_col,
-                color_continuous_scale=color_scale
-            )
-            max_share = share_sorted[target_col].max() if share_sorted[target_col].max() > 0 else 1
-            fig_share.update_traces(textposition="outside", cliponaxis=False)
-            fig_share.update_layout(
-                title="",
-                xaxis=dict(title=f"{target_col} (%)", range=[0, max_share * 1.30]),
-                yaxis=dict(title=""),
-                coloraxis_showscale=False,
-                height=350,
-                margin=dict(t=10, b=20, l=10, r=45)
-            )
-            st.plotly_chart(fig_share, use_container_width=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
-        with sub_col2:
-            st.markdown(f"**{t['table_header']}**")
-            stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
-            st.dataframe(
-                stat_table.style.format({
-                    t["col_count"]: "{:,.1f}",
-                    t["col_s_defect"]: "{:.2f}%",
-                    t["col_s_in"]: "{:.2f}%",
-                    t["col_cum"]: "{:.2f}%"
-                }),
-                use_container_width=True,
-                hide_index=True,
-                height=385
-            )
+        # 8.3 异常数量与双维度比例对照表（全宽独立展示，5列完美一次性全显）
+        st.markdown(f"**{t['table_header']}**")
+        stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
+        st.dataframe(
+            stat_table.style.format({
+                t["col_count"]: "{:,.1f}",
+                t["col_s_defect"]: "{:.2f}%",
+                t["col_s_in"]: "{:.2f}%",
+                t["col_cum"]: "{:.2f}%"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
     else:
         st.info("No defect data available under current filters.")
 else:
