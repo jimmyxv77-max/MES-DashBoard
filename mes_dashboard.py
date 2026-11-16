@@ -30,9 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **分切碾压异常智能放行**：优化数据清洗逻辑，对分切工序中名称含 `too much` 等碾压来料过多的真实异常进行智能保留，不予错误剔除。
-        - **新增多维度协同对比图**：新增独立的“单项不良多维度协同对比分析”图表，支持按机台或操作者分组横向对比。
-        - **核心功能完美继承**：保留原单项不良推移、Y轴上限调节、智能 Mean-1Sigma 目标线及百分比单位。
+        - **稳健目标线算法升级**：目标线计算前自动过滤掉 $\mu + 3\sigma$ 以外的极端离群值，避免大异常拉大标准差；真实数据展示保持完整、绝不剔除。
+        - **分切碾压异常智能放行**：完美保留分切工序中含 `too much` 等碾压来料过多的真实异常。
+        - **多维度协同对比与全功能继承**：保留多机台/操作者对比、Y轴上限调节、百分比单位及双粒度切换。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -92,8 +92,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Smart Slitting Over-input Preservation**: Retains legitimate over-input anomalies containing 'too much' during slitting.
-        - **New Multi-Dimensional Comparison Chart**: Added independent cross-comparison by machine or operator.
+        - **Robust Target Line Algorithm**: Filters out extreme outliers beyond Mean + 3*Sigma specifically for target calculation, while keeping all raw data intact on charts.
+        - **Smart Slitting Over-input Preservation**: Retains legitimate over-input anomalies containing 'too much'.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -200,7 +200,7 @@ if missing_cols:
 if "TestDate" in df.columns:
     df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
 
-# ================= 4. 增强型数据清洗与逻辑闭环验证 =================
+# ================= 4. 增强型数据清洗（兼顾分切碾压来料过多异常） =================
 for col in ["INQty", "OutQty", "ScrapQty"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -214,18 +214,13 @@ if has_fpy:
 if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
     raw_abnormal_mask = df["INQty"] < df["OutQty"]
     
-    # 业务闭环判断：
-    # 1. 如果是涂布工序（ProcessName 包含 coating 或涂布），直接严格修正
-    # 2. 如果是分切工序或含有 "too much" 等碾压过量关键字的真实异常，予以保留不剔除
     is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(True, index=df.index)
     
-    # 检查是否有批次名称或异常明细包含 "too much" 关键字
     has_too_much = pd.Series(False, index=df.index)
     for col_c in df.columns:
         if df[col_c].dtype == object:
             has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
 
-    # 实际需要修正的异常行：输入小于输出，且（属于涂布工序 OR 不包含 too much 真实碾压过量异常）
     fixable_mask = raw_abnormal_mask & (is_coating | (~has_too_much))
     fixed_count = int(fixable_mask.sum())
 
@@ -396,7 +391,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（原功能完整保留） =================
+# ================= 9. 动态单项不良变化推移图（引入稳健目标线：剔除 > μ+3σ 后的 Mean - 1Sigma） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -430,14 +425,26 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
-            series_vals = daily_defect_agg[y_col]
-            mean_val = float(series_vals.mean())
-            std_val = float(series_vals.std())
-            sigma_default = max(0.0, mean_val - 1.0 * (std_val if not np.isnan(std_val) else 0.0))
-            if sigma_default == 0:
-                sigma_default = max(0.01, mean_val * 0.5)
-            
-            auto_max = float(series_vals.max()) if not series_vals.empty else 1.0
+            # --- 🛠️ 稳健目标线计算逻辑：先剔除 > μ + 3σ 的极端数据，再计算 Mean - 1*Sigma ---
+            raw_series = daily_defect_agg[y_col].dropna()
+            if not raw_series.empty:
+                init_mean = raw_series.mean()
+                init_std = raw_series.std()
+                # 仅用于目标值定义的临时过滤（不影响真实数据展示）
+                upper_bound = init_mean + 3.0 * (init_std if not np.isnan(init_std) else 0.0)
+                robust_series = raw_series[raw_series <= upper_bound]
+                if robust_series.empty:
+                    robust_series = raw_series # 兜底保护
+                
+                robust_mean = robust_series.mean()
+                robust_std = robust_series.std()
+                sigma_default = max(0.0, robust_mean - 1.0 * (robust_std if not np.isnan(robust_std) else 0.0))
+                if sigma_default == 0:
+                    sigma_default = max(0.01, robust_mean * 0.5)
+            else:
+                sigma_default = 0.01
+
+            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
             auto_max = max(sigma_default * 1.5, auto_max * 1.25)
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
@@ -466,6 +473,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     step=0.1 if is_rate_mode else 10.0
                 )
 
+            # 真实数据展示：保持完整，绝对不剔除任何点
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
             target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
             fig_def.add_hline(
@@ -492,14 +500,25 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
 
-            series_vals = roll_df[y_col]
-            mean_val = float(series_vals.mean())
-            std_val = float(series_vals.std())
-            sigma_default = max(0.0, mean_val - 1.0 * (std_val if not np.isnan(std_val) else 0.0))
-            if sigma_default == 0:
-                sigma_default = max(0.01, mean_val * 0.5)
+            # --- 🛠️ 稳健目标线计算逻辑（单卷明细粒度） ---
+            raw_series = roll_df[y_col].dropna()
+            if not raw_series.empty:
+                init_mean = raw_series.mean()
+                init_std = raw_series.std()
+                upper_bound = init_mean + 3.0 * (init_std if not np.isnan(init_std) else 0.0)
+                robust_series = raw_series[raw_series <= upper_bound]
+                if robust_series.empty:
+                    robust_series = raw_series
+                
+                robust_mean = robust_series.mean()
+                robust_std = robust_series.std()
+                sigma_default = max(0.0, robust_mean - 1.0 * (robust_std if not np.isnan(robust_std) else 0.0))
+                if sigma_default == 0:
+                    sigma_default = max(0.01, robust_mean * 0.5)
+            else:
+                sigma_default = 0.01
 
-            auto_max = float(series_vals.max()) if not roll_df.empty else 1.0
+            auto_max = float(raw_series.max()) if not raw_series.empty else 1.0
             auto_max = max(sigma_default * 1.5, auto_max * 1.25)
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
@@ -528,6 +547,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     step=0.1 if is_rate_mode else 10.0
                 )
 
+            # 真实数据展示：保持完整，绝对不剔除任何点
             fig_def = px.line(
                 roll_df,
                 x="TestDate",
@@ -552,7 +572,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 9.1 新增：单项不良多维度协同对比分析图（机台/操作者关联性判定） =================
+# ================= 9.1 单项不良多维度协同对比分析图（机台/操作者关联性判定） =================
 st.subheader(t["defect_multi_header"])
 
 if current_active_defects and len(display_df) > 0:
@@ -571,7 +591,6 @@ if current_active_defects and len(display_df) > 0:
         
         is_multi_rate = "不良率" in multi_metric_mode
         
-        # 按 日期 + 对比维度 进行聚合
         multi_agg = multi_df.groupby(["DayStr", dim_col], as_index=False).agg({
             multi_selected_defect: "sum",
             "INQty": "sum"
