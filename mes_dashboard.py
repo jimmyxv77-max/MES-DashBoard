@@ -19,6 +19,13 @@ LANG_DICT = {
         "import_header": "📁 数据源导入",
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表（支持前缀为 **MesResume_DoMethod** 的各类带后缀文件名）以生成实时看板。",
+        "changelog_title": "📌 版本更新说明 (What's New)",
+        "changelog_text": """
+        - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
+        - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示，告别横向滚动。
+        - **质量目标线调优**：良率目标线默认值升级为 **99.0%**（支持 60%~100% 自由拖动）。
+        - **双语无缝切换**：右上角可随时切换中英文。
+        """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
         "filter_process": "筛选工序 (ProcessName)",
@@ -35,12 +42,12 @@ LANG_DICT = {
         "kpi_out": "总产出 (OutQty)",
         "kpi_scrap": "总废弃 (ScrapQty)",
         "kpi_fpy": "平均单卷良率 (FPY)",
-        "pareto_header": "📉 工序异常明细分析（帕累托累计 / 占总不良比例 / 占总投入比例）",
+        "pareto_header": "📉 工序异常明细分析",
         "pareto_title": "📊 异常帕累托图（柱状=实际数量，折线=累计不良占比）",
         "radio_share": "选择柱状图展示维度：",
         "share_1": "占总不良比例 (%)",
         "share_2": "占总投入比例 (%) [损失率]",
-        "table_header": "📋 异常数量与双维度比例对照表（全宽完整显示）",
+        "table_header": "📋 异常数量与双维度比例对照表",
         "col_defect": "不良项目",
         "col_count": "不良数量",
         "col_s_defect": "占总不良比例",
@@ -55,7 +62,7 @@ LANG_DICT = {
         "m_count": "不良数量推移",
         "m_rate": "不良率推移 (% 总投入)",
         "y_max_label": "🎚️ 单项不良 Y 轴上限：",
-        "yield_trend_header": "📈 良率推移趋势分析（全量数据展示 · 独立全宽 · 带自定义上下限与目标线）",
+        "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含目标线）",
         "t_d_trend": "📅 2. 单日平均良率变化推移走势（含目标线 · 完整日期刻度）",
@@ -71,6 +78,13 @@ LANG_DICT = {
         "import_header": "📁 Data Source Import",
         "import_help": "Drag and drop your MES production data table here (supports MesResume_DoMethod prefix)",
         "import_info": "👈 Please drag or select your MES production data table in the sidebar (supporting files prefixed with **MesResume_DoMethod**) to generate the live dashboard.",
+        "changelog_title": "📌 What's New",
+        "changelog_text": """
+        - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
+        - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width with zero horizontal scrolling.
+        - **Target Line Tuning**: Default yield target upgraded to **99.0%** (adjustable from 60% to 100%).
+        - **Bilingual Switch**: Instant CN/EN toggle via top-right selector.
+        """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
         "filter_process": "Filter Process (ProcessName)",
@@ -87,12 +101,12 @@ LANG_DICT = {
         "kpi_out": "Total Output (OutQty)",
         "kpi_scrap": "Total Scrap (ScrapQty)",
         "kpi_fpy": "Avg Roll Yield (FPY)",
-        "pareto_header": "📉 Process Defect Analysis (Pareto / Defect Share / Loss Rate)",
+        "pareto_header": "📉 Process Defect Analysis",
         "pareto_title": "📊 Defect Pareto Chart (Bar = Qty, Line = Cum. Share %)",
         "radio_share": "Select Bar Chart Metric:",
         "share_1": "Defect Share (%)",
         "share_2": "Loss Rate of Total Input (%)",
-        "table_header": "📋 Defect Quantity & Dual-Dimension Share Table (Full Width)",
+        "table_header": "📋 Defect Quantity & Dual-Dimension Share Table",
         "col_defect": "Defect Item",
         "col_count": "Defect Qty",
         "col_s_defect": "Defect Share",
@@ -107,7 +121,7 @@ LANG_DICT = {
         "m_count": "Defect Quantity Trend",
         "m_rate": "Defect Rate Trend (% of Input)",
         "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
-        "yield_trend_header": "📈 Yield Trend Analysis (Full Data · Full Width · Custom Limits & Targets)",
+        "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend (with Target Line)",
         "t_d_trend": "📅 2. Daily Average Yield Trend (with Target Line · Full Dates)",
@@ -132,7 +146,7 @@ st.title(t["title"])
 st.markdown(f"*{t['author']}*")
 st.markdown("---")
 
-# 2. 侧边栏：文件拖拽上传区与全局控制台
+# 2. 侧边栏：文件拖拽上传区与版本更新说明
 st.sidebar.header(t["import_header"])
 uploaded_file = st.sidebar.file_uploader(
     t["import_help"],
@@ -140,14 +154,12 @@ uploaded_file = st.sidebar.file_uploader(
     help=t["import_help"]
 )
 
+# 在侧边栏下方常驻显示更新日志，方便刚打开时查看
+st.sidebar.markdown("---")
+st.sidebar.markdown(t["changelog_text"])
+
 if uploaded_file is None:
     st.info(t["import_info"])
-    st.markdown("""
-    ### 💡 Dashboard Highlights:
-    * **Full-Width Layout**: Pareto chart, ranking chart, and data table all optimized in full width for clear, zero-scroll visualization.
-    * **Interactive Targets**: Quality target sliders placed directly above yield analysis for easy adjustment (60%~100%, default 99%).
-    * **Bilingual Support**: Instant switch between Chinese and English via top-right selector.
-    """)
     st.stop()
 
 file_name = uploaded_file.name
@@ -398,7 +410,7 @@ if current_active_defects and len(display_df) > 0:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 8.3 异常数量与双维度比例对照表（全宽独立展示，5列完美一次性全显）
+        # 8.3 异常数量与双维度比例对照表（全宽干净表头）
         st.markdown(f"**{t['table_header']}**")
         stat_table = defect_sums[[t["col_defect"], t["col_count"], t["col_s_defect"], t["col_s_in"], t["col_cum"]]].copy()
         st.dataframe(
