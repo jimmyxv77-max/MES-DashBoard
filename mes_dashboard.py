@@ -18,10 +18,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# 统一图表配置：将默认交互拖拽模式设为平移 (pan)，避免误触放大镜丢失坐标
+# 统一图表配置：默认拖拽为平移(pan)，并关闭鼠标滚轮缩放(scrollZoom=False)防止误操作
 DEFAULT_CHART_CONFIG = {
     "dragmode": "pan",
-    "scrollZoom": True,
+    "scrollZoom": False,
     "displayModeBar": True
 }
 
@@ -37,7 +37,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **图表默认交互优化**：所有图表默认工具统一设为**“平移 (Pan)”**（十字移动按钮），彻底杜绝误触放大镜导致坐标丢失的烦恼。
+        - **图表交互防误触优化**：默认工具设为平移（Pan），并**关闭了鼠标滚轮缩放**，彻底杜绝滚动页面时误触放大图表的烦恼。
         - **UI 国际化与数据准确性**：完美切换全英文界面，100% 保留底层业务数据准确性。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -112,7 +112,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Default Pan Tool**: All charts now default to the **Pan** (cross/move) tool instead of zoom, preventing accidental coordinate loss.
+        - **Scroll Zoom Disabled**: Default to Pan tool with scroll zoom disabled, preventing accidental chart zooming while scrolling through the page.
         - **UI Localization & Data Integrity**: Fully translated UI titles, labels, and chart headers into English while 100% preserving raw MES business data content.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
