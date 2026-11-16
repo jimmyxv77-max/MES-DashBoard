@@ -7,8 +7,10 @@ import io
 from openpyxl.chart import BarChart, LineChart, Reference
 
 # ================= 🎛️ 不良目标线锁死接口 (预留配置区) =================
+# 说明：如果某个不良项目有固定的质量目标线，可以直接在此处配置数值（如 0.5 代表 0.5%）。
+# 如果保持为空，则系统自动根据当前数据的 【均值 + 3 * 标准差 (3Sigma)】 作为智能默认目标线。
 LOCKED_DEFECT_TARGETS = {
-    # 示例格式："Calendaring Incoming Shortage": 0.5,
+    # "Coating Dimensional NG": 1.5,
 }
 
 # 1. 页面基本配置
@@ -30,9 +32,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单位与纵坐标全系统统一**：单项不良率推移全面转换为百分比（%）单位，纵坐标与悬浮提示自动带上 `%` 符号。
-        - **功能逻辑深度对齐**：单项不良完美打通“单日汇总”与“按单卷明细（分机台）”双粒度联动。
-        - **良率图 Y 轴下限调节恢复**：支持灵活缩放观察良率细节。
+        - **智能 3Sigma ($3\sigma$) 默认目标线**：单项不良默认目标线升级为 **均值 + $3 \times$ 标准差** 统计过程控制（SPC）标准，自适应波动更科学。
+        - **单位与坐标全面统一**：单项不良率推移采用百分比（%）单位，坐标轴与提示完美带上 `%`。
+        - **双粒度全线打通**：完美支持按单日汇总与按单卷明细（分机台）双视角切换。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -61,7 +63,7 @@ LANG_DICT = {
         "col_s_defect": "占总不良比例",
         "col_s_in": "占总投入比例",
         "col_cum": "累计不良占比",
-        "defect_trend_header": "🔍 单项不良变化推移图（统一百分比单位 & 双粒度支持）",
+        "defect_trend_header": "🔍 单项不良变化推移图（智能 3Sigma 控制线 & 双粒度支持）",
         "def_sel": "🎯 1. 选择追踪的不良项目：",
         "def_view": "📊 2. 选择观察粒度：",
         "view_daily": "按单日汇总趋势",
@@ -70,7 +72,7 @@ LANG_DICT = {
         "m_count": "不良数量推移",
         "m_rate": "不良率推移 (% 总投入)",
         "y_max_label": "🎚️ 单项不良 Y 轴上限：",
-        "def_target_label": "🎯 单项不良目标线阈值设置：",
+        "def_target_label": "🎯 单项不良目标线阈值设置 (3Sigma 智能自适应)：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含机台目标线）",
@@ -91,8 +93,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Unified Percentage Units**: Single defect rate trends are now uniformly displayed in percentages (%) with matching axis labels.
-        - **Aligned Granularity**: Full support for both daily summary and roll-level multi-machine tracking.
+        - **Smart 3Sigma Default Target**: Single defect target line upgraded to Mean + 3*Sigma SPC control limit.
+        - **Unified Percentage Units**: Percentage formatting applied consistently across axes and tooltips.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -130,7 +132,7 @@ LANG_DICT = {
         "m_count": "Defect Quantity Trend",
         "m_rate": "Defect Rate Trend (% of Input)",
         "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
-        "def_target_label": "🎯 Single Defect Target Threshold:",
+        "def_target_label": "🎯 Single Defect Target Threshold (3Sigma):",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
@@ -380,7 +382,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（统一百分比单位 & 完美双粒度支持） =================
+# ================= 9. 动态单项不良变化推移图（引入 3Sigma 智能自适应默认线） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -405,7 +407,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 "INQty": "sum"
             }).sort_values("DayStr")
             
-            # 统一转为百分比单位 (%)
             daily_defect_agg["DefectRatePercent"] = np.where(
                 daily_defect_agg["INQty"] > 0, 
                 (daily_defect_agg[selected_defect] / daily_defect_agg["INQty"]) * 100.0, 
@@ -416,8 +417,14 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
             
-            auto_max = float(daily_defect_agg[y_col].max()) if not daily_defect_agg[y_col].empty else 1.0
-            auto_max = max(1.0, auto_max * 1.25)
+            # 计算统计学 3Sigma (Mean + 3 * Std) 作为智能默认目标线
+            series_vals = daily_defect_agg[y_col]
+            mean_val = float(series_vals.mean())
+            std_val = float(series_vals.std())
+            sigma_default = max(0.01, mean_val + 3.0 * (std_val if not np.isnan(std_val) else 0.0))
+            
+            auto_max = float(series_vals.max()) if not series_vals.empty else 1.0
+            auto_max = max(sigma_default * 1.2, auto_max * 1.25)
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
             
@@ -431,12 +438,12 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         t["def_target_label"],
                         min_value=0.0,
                         max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
-                        value=float(auto_max * 0.5),
+                        value=float(round(sigma_default, 2)),
                         step=0.01 if is_rate_mode else 1.0
                     )
 
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
-            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
+            target_label_def = f"Target (3σ): {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线 (3σ): {target_defect_val}%" if is_rate_mode else f"目标线 (3σ): {target_defect_val}")
             fig_def.add_hline(
                 y=target_defect_val,
                 line_dash="dash",
@@ -452,9 +459,8 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             st.plotly_chart(fig_def, use_container_width=True)
 
         else:
-            # 颗粒度 2：按单卷明细推移（分机台多色对比，跟良率多机台一致）
+            # 颗粒度 2：按单卷明细推移（分机台）
             roll_df = defect_trend_df.copy()
-            # 统一转为百分比单位 (%)
             roll_df["DefectRatePercent"] = np.where(
                 roll_df["INQty"] > 0, 
                 (roll_df[selected_defect] / roll_df["INQty"]) * 100.0, 
@@ -463,8 +469,13 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
             y_col = "DefectRatePercent" if is_rate_mode else selected_defect
             y_axis_title = f"{selected_defect} (%)" if is_rate_mode else f"{selected_defect} (Qty)"
 
-            auto_max = float(roll_df[y_col].max()) if not roll_df[y_col].empty else 1.0
-            auto_max = max(1.0, auto_max * 1.25)
+            series_vals = roll_df[y_col]
+            mean_val = float(series_vals.mean())
+            std_val = float(series_vals.std())
+            sigma_default = max(0.01, mean_val + 3.0 * (std_val if not np.isnan(std_val) else 0.0))
+
+            auto_max = float(series_vals.max()) if not series_vals.empty else 1.0
+            auto_max = max(sigma_default * 1.2, auto_max * 1.25)
 
             locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
             
@@ -478,7 +489,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                         t["def_target_label"],
                         min_value=0.0,
                         max_value=float(max(100.0 if is_rate_mode else 10000.0, auto_max * 2.0)),
-                        value=float(auto_max * 0.5),
+                        value=float(round(sigma_default, 2)),
                         step=0.01 if is_rate_mode else 1.0
                     )
 
@@ -489,7 +500,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 color="MachineName" if "MachineName" in roll_df.columns else None,
                 markers=True
             )
-            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
+            target_label_def = f"Target (3σ): {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线 (3σ): {target_defect_val}%" if is_rate_mode else f"目标线 (3σ): {target_defect_val}")
             fig_def.add_hline(
                 y=target_defect_val,
                 line_dash="dash",
