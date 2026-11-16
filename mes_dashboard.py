@@ -30,10 +30,9 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **界面文案精简**：去掉了图表标题中繁琐的括号描述文字，看板视觉更清爽专业。
-        - **智能默认目标线**：单项不良默认目标线采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)**。
+        - **图表文案极简优化**：移除了图表注释中的 `μ-σ` 标识，统一直观显示为“目标线”。
+        - **智能默认目标线**：单项不良默认目标线采用 **平均值 - $1 \times$ 标准差 ($\mu - 1\sigma$)** 动态计算。
         - **单位与坐标全面统一**：单项不良率推移采用百分比（%）单位，坐标轴与提示完美带上 `%`。
-        - **双粒度全线打通**：完美支持按单日汇总与按单卷明细（分机台）双视角切换。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -71,7 +70,7 @@ LANG_DICT = {
         "m_count": "不良数量推移",
         "m_rate": "不良率推移 (% 总投入)",
         "y_max_label": "🎚️ 单项不良 Y 轴上限：",
-        "def_target_label": "🎯 单项不良目标线阈值设置 (Mean - 1σ 智能自适应)：",
+        "def_target_label": "🎯 单项不良目标线阈值设置：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
         "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势",
@@ -92,8 +91,8 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Clean UI Titles**: Removed redundant bracket descriptions from chart titles.
-        - **Smart Mean - 1Sigma Default Target**: Single defect target line updated to Mean - 1*Sigma.
+        - **Streamlined UI Text**: Removed mathematical notations from chart annotations for cleaner display.
+        - **Smart Default Target**: Single defect target line uses Mean - 1*Sigma dynamically.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -131,7 +130,7 @@ LANG_DICT = {
         "m_count": "Defect Quantity Trend",
         "m_rate": "Defect Rate Trend (% of Input)",
         "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
-        "def_target_label": "🎯 Single Defect Target Threshold (Mean - 1σ):",
+        "def_target_label": "🎯 Single Defect Target Threshold:",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
@@ -381,7 +380,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图 =================
+# ================= 9. 动态单项不良变化推移图（去掉了图表内的 μ-σ 标注，统称为目标线） =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -443,7 +442,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                     )
 
             fig_def = px.line(daily_defect_agg, x="DayStr", y=y_col, markers=True)
-            target_label_def = f"Target (μ-σ): {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线 (μ-σ): {target_defect_val}%" if is_rate_mode else f"目标线 (μ-σ): {target_defect_val}")
+            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
             fig_def.add_hline(
                 y=target_defect_val,
                 line_dash="dash",
@@ -502,7 +501,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 color="MachineName" if "MachineName" in roll_df.columns else None,
                 markers=True
             )
-            target_label_def = f"Target (μ-σ): {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线 (μ-σ): {target_defect_val}%" if is_rate_mode else f"目标线 (μ-σ): {target_defect_val}")
+            target_label_def = f"Target: {target_defect_val}%" if (curr_lang=="en" and is_rate_mode) else (f"目标线: {target_defect_val}%" if is_rate_mode else f"目标线: {target_defect_val}")
             fig_def.add_hline(
                 y=target_defect_val,
                 line_dash="dash",
