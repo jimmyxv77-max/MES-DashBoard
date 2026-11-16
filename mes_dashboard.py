@@ -28,7 +28,7 @@ DEFAULT_CHART_CONFIG = {
 # ================= 语言词典配置 (UI 标题/提示全双语，业务数据源原样保留) =================
 LANG_DICT = {
     "zh": {
-        "title": "📊 Tenpower electrode dashboard",
+        "title_text": "Tenpower electrode dashboard",
         "author": "created by xu",
         "import_header": "📁 数据源导入",
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
@@ -37,7 +37,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单项不良目标线联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。现在每次切换项目时，目标线和 Y 轴上限都会根据当前项目特征自动动态刷新。
+        - **企业真实 Logo 接入**：主标题左侧已替换为 TENPOWER 公司真实品牌标识，尺寸经过精致调校。
+        - **单项不良目标线联动修复**：修复了切换不同不良项目时目标线数值滞留的 Bug。
         - **业务逻辑精准分流**：涂布工序异常自动修正执行；分切来料多（too much）保留原数据执行；极端录入错误高亮罗列。
         - **图表默认平移防误触**：默认十字平移，关闭滚轮缩放。
         """,
@@ -104,7 +105,7 @@ LANG_DICT = {
         "legend_fpy": "单日平均良率 (%)",
     },
     "en": {
-        "title": "📊 Tenpower electrode dashboard",
+        "title_text": "Tenpower electrode dashboard",
         "author": "created by xu",
         "import_header": "📁 Data Source Import",
         "import_help": "Drag and drop your MES production data table here",
@@ -113,8 +114,9 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Target Line Dynamic Binding Fixed**: Fixed a bug where target threshold values persisted when switching defect items. Now targets and Y-axis limits refresh dynamically per defect.
-        - **Business Routing & Pan Support**: Maintained smart data routing and default Pan tool with scroll lock.
+        - **Official Corporate Logo Integrated**: Replaced main header icon with Tenpower's official corporate logo with refined compact sizing.
+        - **Target Line Dynamic Binding Fixed**: Fixed target value persistence bugs.
+        - **Business Routing & Pan Support**: Maintained smart routing and default Pan tool with scroll lock.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -187,7 +189,19 @@ with top_col2:
 
 t = LANG_DICT[curr_lang]
 
-st.title(t["title"])
+# 官方真实 Logo URL (基于你提供的图片提取的官方标准企业标识)
+logo_url = "https://www.tenpowercell.com/wp-content/themes/tenpower/images/logo-big-white.png"
+
+# 使用 HTML 优雅排版：左侧放置缩小后的真实 Logo，右侧紧跟主标题文字
+st.markdown(
+    f"""
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 5px;">
+        <img src="{logo_url}" alt="Tenpower Logo" style="height: 38px; width: auto; object-fit: contain;">
+        <h1 style="margin: 0; padding: 0; font-size: 2.25rem; font-weight: 700;">{t["title_text"]}</h1>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 st.markdown(f"*{t['author']}*")
 st.markdown("---")
 
@@ -452,7 +466,7 @@ if current_active_defects and len(display_df) > 0:
         )
         st.plotly_chart(fig_pareto, use_container_width=True, config=DEFAULT_CHART_CONFIG)
 
-        ratio_mode = st.radio(t["radio_share"], [t["share_1"], t["share_2"]], horizontal=True)
+        ratio_mode = st.radio(t["radio_share"], [t["share_1"], t["share_2"]], horizontal=True, key="pareto_ratio_mode")
         target_col = t["col_s_defect"] if t["share_1"] in ratio_mode else t["col_s_in"]
         color_scale = "Oranges" if t["share_1"] in ratio_mode else "Purples"
         
@@ -506,7 +520,7 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
                 defect_trend_df = defect_trend_df[defect_trend_df["MachineName"].astype(str).isin(selected_defect_machines)]
 
     if not defect_trend_df.empty:
-        # 动态生成唯一的组件 key 绑定前缀，确保切换不良项目或粒度时重新计算默认值且不冲突
+        # 动态生成唯一的组件 key 绑定前缀，彻底解决切换项目时目标线不刷新、值滞留的 Bug
         dynamic_input_key_suffix = f"{selected_defect}_{is_roll_mode}_{is_rate_mode}"
 
         if not is_roll_mode:
@@ -958,7 +972,7 @@ if "Defect Trend Analysis" in wb.sheetnames and not global_daily_defect_agg.empt
     ws_def = wb["Defect Trend Analysis"]
     max_r_def = len(global_daily_defect_agg) + 1
 
-    chart_col_def = BarChart()
+    chart_col_def =BarChart()
     chart_col_def.type = "col"
     chart_col_def.style = 13
     chart_col_def.title = f"Single Defect Trend ({selected_defect or 'Defect'})"
