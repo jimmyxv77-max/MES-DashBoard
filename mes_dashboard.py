@@ -21,10 +21,10 @@ LANG_DICT = {
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表（支持前缀为 **MesResume_DoMethod** 的各类带后缀文件名）以生成实时看板。",
         "export_header": "📥 报告导出",
-        "btn_export": "📥 导出当前筛选报表 (Excel)",
+        "btn_export": "📥 导出看板图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **一键导出 Excel**：支持将当前筛选后的统计明细与原始数据打包导出为 Excel 报表。
+        - **图表数据一键导出**：一键导出包含核心 KPI 摘要与帕累托异常图表统计的汇总 Excel 报表。
         - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
         - **全宽布局优化**：不良明细表、帕累托图与良率趋势独立全宽展示，告别横向滚动。
         - **质量目标线调优**：良率目标线默认值升级为 **99.0%**（支持 60%~100% 自由拖动）。
@@ -83,10 +83,10 @@ LANG_DICT = {
         "import_help": "Drag and drop your MES production data table here (supports MesResume_DoMethod prefix)",
         "import_info": "👈 Please drag or select your MES production data table in the sidebar (supporting files prefixed with **MesResume_DoMethod**) to generate the live dashboard.",
         "export_header": "📥 Report Export",
-        "btn_export": "📥 Export Filtered Report (Excel)",
+        "btn_export": "📥 Export Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **One-Click Excel Export**: Export current filtered summary statistics and raw data into a multi-sheet Excel workbook.
+        - **Chart Data Export**: Export Excel reports containing core KPI summaries and Pareto defect chart statistics.
         - **Multi-Process Support**: Tailored for coating, calendering, slitting, and electrode manufacturing workflows.
         - **Full-Width Layout**: Pareto charts, defect tables, and yield trends optimized in full width with zero horizontal scrolling.
         - **Target Line Tuning**: Default yield target upgraded to **99.0%** (adjustable from 60% to 100%).
@@ -666,28 +666,52 @@ else:
 
 st.markdown("---")
 
-# ================= 11. 生产批次明细数据表与一键导出 Excel =================
+# ================= 11. 生产批次明细数据表与图表汇总 Excel 导出 =================
 st.subheader(t["table_detail"])
 
-# 准备一键导出 Excel 的内存流打包逻辑
+# 准备一键导出 Excel 的内存流打包逻辑（聚焦于图表汇总数据与核心指标）
 output_buffer = io.BytesIO()
 with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-    # 写入Sheet1: 当前筛选后的原始批次明细数据
-    display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
+    # 1. 汇总 Sheet: 核心 KPI 摘要与帕累托异常图表统计
+    summary_kpi_data = pd.DataFrame({
+        "Metric Item": [
+            "Total Production Batches (总生产卷数)", 
+            "Total Input Qty (总投入量)", 
+            "Total Output Qty (总产出量)", 
+            "Total Scrap Qty (总废弃量)", 
+            "Average Roll Yield FPY (平均单卷良率)"
+        ],
+        "Value": [
+            len(display_df), 
+            total_in_qty, 
+            total_out_qty, 
+            total_scrap_qty, 
+            f"{avg_fpy:.2f}%" if has_fpy else f"{overall_yield:.2f}%"
+        ]
+    })
+    summary_kpi_data.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=0)
     
-    # 写入Sheet2: 异常统计与帕累托双维度明细
     if not global_defect_sums.empty:
-        global_defect_sums.to_excel(writer, sheet_name="Defect Summary", index=False)
+        # 写入空行作为分隔，再写入帕累托图表统计数据
+        start_row_pareto = len(summary_kpi_data) + 3
+        # 写入一个小标题行
+        pd.DataFrame([["=== Pareto Defect Chart & Dual-Dimension Statistics ==="]]).to_excel(
+            writer, sheet_name="Dashboard Summary", index=False, header=False, startrow=start_row_pareto-1
+        )
+        global_defect_sums.to_excel(writer, sheet_name="Dashboard Summary", index=False, startrow=start_row_pareto)
+
+    # 2. 原始明细 Sheet (保留给需要查阅底表的场景)
+    display_df.to_excel(writer, sheet_name="Raw Data (Filtered)", index=False)
 
 excel_data = output_buffer.getvalue()
 
-# 在明细表上方右侧放置漂亮的下载按钮
+# 在明细表上方右侧放置下载按钮
 export_col1, export_col2 = st.columns([3, 1])
 with export_col2:
     st.download_button(
         label=t["btn_export"],
         data=excel_data,
-        file_name="Tenpower_Electrode_Quality_Report.xlsx",
+    file_name="Tenpower_Electrode_Chart_Summary_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
