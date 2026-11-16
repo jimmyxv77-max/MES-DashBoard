@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 
 # 1. 页面基本配置
 st.set_page_config(
-    page_title="Tenpower coating dashboard",
+    page_title="Tenpower electrode dashboard",
     page_icon="📊",
     layout="wide"
 )
@@ -14,7 +14,7 @@ st.set_page_config(
 # ================= 语言词典配置 (中/英) =================
 LANG_DICT = {
     "zh": {
-        "title": "📊 Tenpower coating dashboard",
+        "title": "📊 Tenpower electrode dashboard",
         "author": "created by xu",
         "import_header": "📁 数据源导入",
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
@@ -66,7 +66,7 @@ LANG_DICT = {
         "y_daily_fpy": "单日平均良率 (%)",
     },
     "en": {
-        "title": "📊 Tenpower coating dashboard",
+        "title": "📊 Tenpower electrode dashboard",
         "author": "created by xu",
         "import_header": "📁 Data Source Import",
         "import_help": "Drag and drop your MES production data table here (supports MesResume_DoMethod prefix)",
@@ -145,7 +145,7 @@ if uploaded_file is None:
     st.markdown("""
     ### 💡 Dashboard Highlights:
     * **Full-Width Layout**: Pareto chart & separate full-width yield trends for clear visualization.
-    * **Interactive Targets**: Quality target sliders placed directly above yield analysis for easy adjustment (60%~100%).
+    * **Interactive Targets**: Quality target sliders placed directly above yield analysis for easy adjustment (60%~100%, default 99%).
     * **Bilingual Support**: Instant switch between Chinese and English via top-right selector.
     """)
     st.stop()
@@ -544,16 +544,16 @@ else:
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区（置入质量目标线滑块 + Y轴下限调节） =================
+# ================= 10. 良率推移趋势专区（默认目标值设为 99.0%） =================
 st.subheader(t["yield_trend_header"])
 
-# 质量目标线滑块直接放在良率分析下方（范围优化为 60.0% ~ 100.0%）
+# 质量目标线滑块直接放在良率分析下方（范围 60.0% ~ 100.0%，默认值设为 99.0%）
 st.markdown(f"**{t['target_header']}**")
 target_col1, target_col2 = st.columns(2, gap="large")
 with target_col1:
-    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 95.0, 0.1)
+    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
 with target_col2:
-    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 95.0, 0.1)
+    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
