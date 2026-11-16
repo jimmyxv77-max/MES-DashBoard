@@ -7,12 +7,8 @@ import io
 from openpyxl.chart import BarChart, LineChart, Reference
 
 # ================= 🎛️ 不良目标线锁死接口 (预留配置区) =================
-# 说明：如果某个不良项目有固定的质量目标线（%，占总投入比例或不良率），可以直接在这里配置数值。
-# 如果对应项目键值为 None 或留空，则在页面上由滑块自由拖动控制；一旦填入数值，则自动锁定为固定目标。
 LOCKED_DEFECT_TARGETS = {
-    # 示例格式（未来固定后可解开注释并填写固定值，如 0.5 代表 0.5%）：
-    # "Calendaring Incoming Shortage": 0.5,
-    # "Slitting Width NG": 0.3,
+    # 示例格式："Calendaring Incoming Shortage": 0.5,
 }
 
 # 1. 页面基本配置
@@ -34,10 +30,10 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **单项不良目标线功能**：新增单项不良目标线设置（支持自由拖动，并预留了锁死目标线的硬编码接口）。
+        - **良率推移双图表完美修复**：完整恢复“各机台单卷良率推移”与“单日平均良率推移”双独立折线图及对应目标线。
+        - **单项不良目标线功能**：新增单项不良目标线设置（支持自由拖动，并预留锁死目标线接口）。
         - **Excel 图表完美呈现**：单项不良与良率趋势在 Excel 中采用标准图表呈现。
         - **侧边栏结构优化**：筛选控制台回归顶部，主次分明更易操作。
-        - **多工序支持**：适配涂布、辊压、分切等多工序电极生产数据分析。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -78,8 +74,8 @@ LANG_DICT = {
         "def_target_label": "🎯 单项不良目标线阈值设置：",
         "yield_trend_header": "📈 良率推移趋势分析",
         "y_min_label": "🎚️ 良率图 Y 轴下限 (%)：",
-        "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含目标线）",
-        "t_d_trend": "📅 2. 单日平均良率变化推移走势（含目标线 · 完整日期刻度）",
+        "t_m_trend": "📈 1. 各机台单卷良率 (FPY) 推移走势（含机台目标线）",
+        "t_d_trend": "📅 2. 单日平均良率变化推移走势（含单日目标线 · 完整日期刻度）",
         "table_detail": "📋 生产批次明细数据表（当前筛选结果）",
         "x_time": "生产时间",
         "x_date": "生产日期",
@@ -90,16 +86,14 @@ LANG_DICT = {
         "title": "📊 Tenpower electrode dashboard",
         "author": "created by xu",
         "import_header": "📁 Data Source Import",
-        "import_help": "Drag and drop your MES production data table here (supports MesResume_DoMethod prefix)",
-        "import_info": "👈 Please drag or select your MES production data table in the sidebar (supporting files prefixed with **MesResume_DoMethod**) to generate the live dashboard.",
+        "import_help": "Drag and drop your MES production data table here",
+        "import_info": "👈 Please drag or select your MES production data table in the sidebar.",
         "export_header": "📥 Report Export",
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **Defect Target Line feature**: Added target line configuration for individual defects (supports free slider tuning with locked-target override interface).
-        - **Clean Excel Charts**: Standardized chart presentations.
-        - **Optimized Sidebar Layout**: Filter console placed at the top for intuitive navigation.
-        - **Multi-Process Support**: Tailored for electrode manufacturing workflows.
+        - **Fixed Yield Trend Dual Charts**: Restored both Machine Roll Yield and Daily Avg Yield trend charts with respective target lines.
+        - **Defect Target Line feature**: Added target line configuration for individual defects.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -118,7 +112,7 @@ LANG_DICT = {
         "kpi_scrap": "Total Scrap (ScrapQty)",
         "kpi_fpy": "Avg Roll Yield (FPY)",
         "pareto_header": "📉 Process Defect Analysis",
-        "pareto_title": "📊 Defect Pareto Chart (Bar = Qty, Line = Cum. Share %)",
+        "pareto_title": "📊 Defect Pareto Chart",
         "radio_share": "Select Bar Chart Metric:",
         "share_1": "Defect Share (%)",
         "share_2": "Loss Rate of Total Input (%)",
@@ -128,7 +122,7 @@ LANG_DICT = {
         "col_s_defect": "Defect Share",
         "col_s_in": "Input Loss Rate",
         "col_cum": "Cum. Share",
-        "defect_trend_header": "🔍 Single Defect Trend Analysis (with Target Line)",
+        "defect_trend_header": "🔍 Single Defect Trend Analysis",
         "def_sel": "🎯 1. Select Defect Item:",
         "def_view": "📊 2. Select View Granularity:",
         "view_daily": "Daily Summary Trend",
@@ -140,9 +134,9 @@ LANG_DICT = {
         "def_target_label": "🎯 Single Defect Target Threshold:",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
-        "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend (with Target Line)",
-        "t_d_trend": "📅 2. Daily Average Yield Trend (with Target Line · Full Dates)",
-        "table_detail": "📋 Production Batch Detail Table (Current Filtered)",
+        "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
+        "t_d_trend": "📅 2. Daily Average Yield Trend",
+        "table_detail": "📋 Production Batch Detail Table",
         "x_time": "Production Time",
         "x_date": "Production Date",
         "y_roll_fpy": "Roll Yield FPY (%)",
@@ -387,7 +381,7 @@ if current_active_defects and len(display_df) > 0:
 
 st.markdown("---")
 
-# ================= 9. 动态单项不良变化推移图（含目标线支持） =================
+# ================= 9. 动态单项不良变化推移图 =================
 st.subheader(t["defect_trend_header"])
 selected_defect = None
 
@@ -417,7 +411,6 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
         auto_max = float(daily_defect_agg[y_col].max()) if not daily_defect_agg[y_col].empty else 1.0
         auto_max = max(0.5 if is_rate_mode else 1.0, auto_max * 1.25)
 
-        # 检查该单项不良是否在硬编码中被锁死
         locked_val = LOCKED_DEFECT_TARGETS.get(selected_defect, None)
         
         adj_col1, adj_col2 = st.columns([1, 3])
@@ -448,20 +441,87 @@ if current_active_defects and "TestDate" in display_df.columns and len(display_d
 
 st.markdown("---")
 
-# ================= 10. 良率推移趋势专区 =================
+# ================= 10. 良率推移趋势专区（双图表完美恢复） =================
 st.subheader(t["yield_trend_header"])
-target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
-target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
+
+st.markdown(f"**{t['target_header']}**")
+target_col1, target_col2 = st.columns(2, gap="large")
+with target_col1:
+    target_fpy_machine = st.slider(t["t_machine"], 60.0, 100.0, 99.0, 0.1)
+with target_col2:
+    target_fpy_date = st.slider(t["t_date"], 60.0, 100.0, 99.0, 0.1)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 if "TestDate" in display_df.columns and has_fpy and len(display_df) > 0:
     trend_raw_df = display_df.dropna(subset=["TestDate", "FPY"]).sort_values("TestDate")
+
     if not trend_raw_df.empty:
+        # 图表 1：各机台单卷良率推移走势
+        st.markdown(f"**{t['t_m_trend']}**")
+        fig_machine_trend = px.line(
+            trend_raw_df,
+            x="TestDate",
+            y="FPY",
+            color="MachineName" if "MachineName" in trend_raw_df.columns else None,
+            markers=True
+        )
+        target_label_m = f"Target: {target_fpy_machine}%" if curr_lang=="en" else f"目标线: {target_fpy_machine}%"
+        fig_machine_trend.add_hline(
+            y=target_fpy_machine, 
+            line_dash="dash", 
+            line_color="red", 
+            annotation_text=target_label_m, 
+            annotation_position="top left"
+        )
+        fig_machine_trend.update_layout(
+            xaxis=dict(title=t["x_time"]),
+            yaxis=dict(title=t["y_roll_fpy"], range=[80, 100.5]),
+            height=430,
+            margin=dict(t=30, b=30)
+        )
+        st.plotly_chart(fig_machine_trend, use_container_width=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 图表 2：单日平均良率推移走势
+        st.markdown(f"**{t['t_d_trend']}**")
         daily_df = trend_raw_df.copy()
         daily_df["DayStr"] = daily_df["TestDate"].dt.strftime("%Y-%m-%d")
         daily_agg = daily_df.groupby("DayStr", as_index=False)["FPY"].mean().sort_values("DayStr")
+        
         global_daily_yield_agg = daily_agg.copy()
 
-        fig_date_trend = px.line(daily_agg, x="DayStr", y="FPY", markers=True)
+        fig_date_trend = px.line(
+            daily_agg,
+            x="DayStr",
+            y="FPY",
+            markers=True,
+            text=daily_agg["FPY"].apply(lambda v: f"{v:.2f}%")
+        )
+        fig_date_trend.update_traces(textposition="top center", cliponaxis=False)
+        target_label_d = f"Target: {target_fpy_date}%" if curr_lang=="en" else f"目标线: {target_fpy_date}%"
+        fig_date_trend.add_hline(
+            y=target_fpy_date, 
+            line_dash="dash", 
+            line_color="red", 
+            annotation_text=target_label_d, 
+            annotation_position="top left"
+        )
+        fig_date_trend.update_layout(
+            xaxis=dict(
+                title=t["x_date"],
+                type="category",
+                tickmode="array",
+                tickvals=daily_agg["DayStr"].tolist(),
+                ticktext=daily_agg["DayStr"].tolist(),
+                tickangle=-35,
+                tickfont=dict(size=11)
+            ),
+            yaxis=dict(title=t["y_daily_fpy"], range=[80, 100.5]),
+            height=430,
+            margin=dict(t=30, b=75)
+        )
         st.plotly_chart(fig_date_trend, use_container_width=True)
 
 st.markdown("---")
