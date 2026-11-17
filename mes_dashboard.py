@@ -950,8 +950,16 @@ elif system_mode == t["mode_v2"]:
         xaxis=dict(tickangle=-25),
         yaxis=dict(title="Input Loss Rate (%)", range=[0, max_loss * 1.35]),
         yaxis2=dict(title="Cumulative Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
-        height=520,
-        margin=dict(t=40, b=80, l=50, r=50),
+        # 🔑 修复点：将图例移至图表上方水平显示，并增加右侧边距，彻底避免遮挡右侧坐标轴
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.04,
+            xanchor="left",
+            x=0.0
+        ),
+        height=540,
+        margin=dict(t=80, b=80, l=50, r=50),
         dragmode="pan"
     )
     st.plotly_chart(fig_comp_pareto, use_container_width=True, config=DEFAULT_CHART_CONFIG)
