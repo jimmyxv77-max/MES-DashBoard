@@ -41,8 +41,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **v2.0 双文件对比极速修复**：采用 Plotly 最稳定的透明度与分组柱状设计，彻底消除所有 ValueError 报错。
-        - **v1.0 完美隔离**：正式 1.0 核心逻辑100%保留。
+        - **v2.0 双文件周期对比升级**：完美实现双柱重叠（overlay），上周采用经典红色无填充空心边框框选，本周采用标准实色显示，完全契合范例。
+        - **v1.0 稳定隔离**：正式 1.0 核心功能100%不受影响。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -119,7 +119,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **v2.0 Dual-File Comparison Fixed**: Resolved Plotly ValueError using robust grouped bar design.
+        - **v2.0 Dual-File Comparison**: Overlapping bars with red outline for previous week and solid bars for current week.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -910,22 +910,25 @@ elif system_mode == t["mode_v2"]:
 
     merged_comp = merged_comp.sort_values(by="DefectQty_Curr", ascending=False).reset_index(drop=True)
 
-    st.markdown("### 📊 柱状图对比：上周（半透明浅色） vs 本周（实色常规显示）")
+    st.markdown("### 📊 柱状图重叠对比：上周（红色空心边框） vs 本周（实色常规显示）")
     
     fig_comp_pareto = go.Figure()
 
-    # 1. 上周条形图（使用半透明浅色，保证百分之百兼容所有版本的 Plotly 属性校验）
+    # 1. 上周条形图（使用 barmode="overlay" 重叠，marker 采用红色无填充空心框）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
         name=f"上周: {label_prev} (Loss Rate %)",
-        marker_color="rgba(120, 120, 120, 0.45)",
+        marker=dict(
+            color="rgba(0,0,0,0)",
+            line=dict(color="red", width=2.5)
+        ),
         text=merged_comp["LossRate_Prev"].apply(lambda v: f"{v:.2f}%" if v > 0 else ""),
         textposition="outside",
         yaxis="y"
     ))
 
-    # 2. 本周条形图（使用标准实色）
+    # 2. 本周条形图（使用标准实色显示）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Curr"],
@@ -952,7 +955,7 @@ elif system_mode == t["mode_v2"]:
     max_loss = max(merged_comp["LossRate_Curr"].max(), merged_comp["LossRate_Prev"].max()) if not merged_comp.empty else 1.0
 
     fig_comp_pareto.update_layout(
-        barmode="group",
+        barmode="overlay",  # 关键设置：使上周和本周的柱子完美重叠在一起
         xaxis=dict(tickangle=-25),
         yaxis=dict(title="Input Loss Rate (%)", range=[0, max_loss * 1.35]),
         yaxis2=dict(title="Cumulative Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
