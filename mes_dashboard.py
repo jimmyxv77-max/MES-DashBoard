@@ -41,9 +41,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **v2.0 双文件周期对比**：新增独立二级界面，支持导入双周文件（如 `-W10` 与 `-W11`），实现上周虚线柏拉图与本周实色图的环比对齐分析。
-        - **v1.0 完美隔离**：正式 1.0 核心逻辑100%保留，互不干扰。
-        - **悬浮与图例优化**：单卷良率图悬浮完整显示 `BatchNo`，组合图图例置于顶部正中。
+        - **v2.0 双文件对比 Bug 修复**：修复了 Plotly 柱状图透明色冲突导致的 `ValueError` 报错，采用浅灰色填充与红色虚线边框完美还原对比视觉。
+        - **v1.0 完美隔离**：正式 1.0 核心逻辑100%保留。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -120,8 +119,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **v2.0 Dual-File Comparison**: Added new secondary interface for comparative periodic analysis (e.g., -W10 vs -W11).
-        - **v1.0 Isolated**: Original v1.0 code is 100% preserved and untouched.
+        - **v2.0 Dual-File Comparison Fixed**: Resolved Plotly ValueError by using styled outline bars.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -216,7 +214,6 @@ system_mode = st.sidebar.radio(
     label_visibility="collapsed"
 )
 
-# 辅助函数：安全读取文件
 def load_uploaded_file(uploaded_file):
     if uploaded_file is None:
         return None
@@ -236,7 +233,6 @@ def load_uploaded_file(uploaded_file):
         st.error(f"❌ File read error ({fname}): {ex}")
         return None
 
-# 自动解析文件名中的周数标记（例如 -W10, -w11 等）
 def extract_week_label(filename, default_str="Week"):
     match = re.search(r'[-_]W(\d+)', filename, re.IGNORECASE)
     if match:
@@ -879,7 +875,6 @@ elif system_mode == t["mode_v2"]:
     st.subheader(f"📊 周期性双文件对比看板：【{label_prev}】 VS 【{label_curr}】")
     st.markdown("---")
 
-    # 提取两组文件的动态不良列
     exclude_keywords = ["lotno", "batch", "person", "machine", "date", "class", "product", "process", "qty", "fpy", "scrap"]
     
     def get_defect_summary(df_target):
@@ -907,28 +902,25 @@ elif system_mode == t["mode_v2"]:
     summary_prev, in_prev = get_defect_summary(df_prev)
     summary_curr, in_curr = get_defect_summary(df_curr)
 
-    # 合并对齐两周不良项目
     merged_comp = pd.merge(
         summary_curr[["DefectItem", "DefectQty", "DefectShare", "LossRate", "CumShare"]],
         summary_prev[["DefectItem", "DefectQty", "DefectShare", "LossRate"]],
         on="DefectItem", how="outer", suffixes=("_Curr", "_Prev")
     ).fillna(0)
 
-    # 按照本周不良数量重新降序排序
     merged_comp = merged_comp.sort_values(by="DefectQty_Curr", ascending=False).reset_index(drop=True)
 
-    # 绘制双周重叠对比柏拉图
-    st.markdown("### 📊 柱状图对比：上周（虚线网格阴影） vs 本周（实色常规显示）")
+    st.markdown("### 📊 柱状图对比：上周（浅灰虚线框） vs 本周（实色常规显示）")
     
     fig_comp_pareto = go.Figure()
 
-    # 1. 上周条形图（使用虚线框样式模拟图片中的阴影虚框）
+    # 1. 上周条形图（使用浅灰色填充 + 红色虚线边框，完美兼容 Plotly 属性校验）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
         name=f"上周: {label_prev} (Loss Rate %)",
         marker=dict(
-            color="rgba(0,0,0,0)",
+            color="rgba(180, 180, 180, 0.35)",
             line=dict(color="red", width=2, dash="dash")
         ),
         text=merged_comp["LossRate_Prev"].apply(lambda v: f"{v:.2f}%" if v > 0 else ""),
