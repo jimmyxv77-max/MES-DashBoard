@@ -41,8 +41,8 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **v2.0 双文件周期对比升级**：完美实现双柱重叠（overlay），上周采用经典红色无填充空心边框框选，本周采用标准实色显示，完全契合范例。
-        - **v1.0 稳定隔离**：正式 1.0 核心功能100%不受影响。
+        - **v2.0 双文件周期对比升级**：完美实现双柱重叠（overlay），上周采用红色无填充空心边框，本周采用标准实色显示。
+        - **v1.0 稳定隔离**：正式 1.0 核心功能 100% 完整保留。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
@@ -914,7 +914,7 @@ elif system_mode == t["mode_v2"]:
     
     fig_comp_pareto = go.Figure()
 
-    # 1. 上周条形图（使用 barmode="overlay" 重叠，marker 采用红色无填充空心框）
+    # 1. 上周条形图（使用 overlay 重叠，marker 采用红色无填充空心框）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
