@@ -19,11 +19,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# 统一图表配置：默认拖拽为平移(pan)，关闭鼠标滚轮缩放(scrollZoom=False)防止误触
+# 统一图表配置：默认开启工具栏，允许平移、缩放、点击图例隐藏
 DEFAULT_CHART_CONFIG = {
     "dragmode": "pan",
     "scrollZoom": False,
-    "displayModeBar": True
+    "displayModeBar": True,
+    "modeBarButtonsToAdd": ["hoverClosestCartesian", "hoverCompareCartesian"]
 }
 
 # ================= 语言词典配置 =================
@@ -41,7 +42,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **v2.0 周期双文件对比升级**：完美引入涂布自动修正、分切 too much 放行规则，并支持上周红色空心红框浮于本周实色柱上方，底部同步展示清洗与放行明细！
+        - **v2.0 周期双文件对比优化**：完美支持点击图例隐藏/显示任意一周数据，优化数字标签防重叠逻辑，支持自由缩放平移！
         - **v1.0 稳定隔离**：正式 1.0 核心功能 100% 完整保留。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -119,7 +120,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **v2.0 Dual-File Comparison Upgraded**: Integrated coating correction & too-much rules with red outline on top of solid bars.
+        - **v2.0 Dual-File Comparison Upgraded**: Interactive legend click-to-hide support.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -850,8 +851,8 @@ elif system_mode == t["mode_v2"]:
     st.sidebar.header("📁 双周期数据源导入 (v2.0)")
     st.sidebar.markdown("请分别上传**上周/基准期文件**与**本周/对比期文件**（格式如 `MesResume_DoMethod-W10.xlsx`）：")
     
-    file_prev = st.sidebar.file_uploader("📥 上周 / 基准期文件 (e.g., -W10)", type=["xlsx", "xls", "csv"], key="file_prev")
-    file_curr = st.sidebar.file_uploader("📥 本周 / 对比期文件 (e.g., -W11)", type=["xlsx", "xls", "csv"], key="file_curr")
+    file_prev = st.sidebar.file_uploader("📥 上周 / 基准期文件 (e.g., MesResume_DoMethod-W10.xlsx)", type=["xlsx", "xls", "csv"], key="file_prev")
+    file_curr = st.sidebar.file_uploader("📥 本周 / 对比期文件 (e.g., MesResume_DoMethod-W11.xlsx)", type=["xlsx", "xls", "csv"], key="file_curr")
 
     if file_prev is None or file_curr is None:
         st.info("👈 请在左侧边栏同时上传 **上周（基准期）** 与 **本周（对比期）** 两个 MES 数据文件（支持 MesResume_DoMethod-Wxx 格式），以启动周期双文件对比功能。")
@@ -866,14 +867,12 @@ elif system_mode == t["mode_v2"]:
     label_prev = extract_week_label(file_prev.name)
     label_curr = extract_week_label(file_curr.name)
 
-    # 分别对两周数据应用完整的数据清洗与校验逻辑
     df_prev, coat_fix_prev, pres_toomuch_prev, ext_prev, _ = process_and_clean_dataframe(raw_df_prev)
     df_curr, coat_fix_curr, pres_toomuch_curr, ext_curr, _ = process_and_clean_dataframe(raw_df_curr)
 
     st.subheader(f"📊 周期性双文件对比看板：【{label_prev}】 VS 【{label_curr}】")
     st.markdown("---")
 
-    # 双周数据校验报告展示
     total_cleaned_prev = len(coat_fix_prev) + len(pres_toomuch_prev)
     total_cleaned_curr = len(coat_fix_curr) + len(pres_toomuch_curr)
     
@@ -916,10 +915,11 @@ elif system_mode == t["mode_v2"]:
     merged_comp = merged_comp.sort_values(by="DefectQty_Curr", ascending=False).reset_index(drop=True)
 
     st.markdown("### 📊 柱状图重叠对比：本周（实色柱）与上周（红色空心边框浮于上方）")
+    st.info("💡 **小贴士**：若两周数值接近导致顶部文字重叠，您可以点击右上角图例中的 **【上周】** 或 **【本周】** 来临时隐藏其中一周，或者使用右上角工具栏进行局部放大平移查看！")
     
     fig_comp_pareto = go.Figure()
 
-    # 1. 先添加本周实色柱（作为底层柱展示）
+    # 1. 本周实色柱
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Curr"],
@@ -930,7 +930,7 @@ elif system_mode == t["mode_v2"]:
         yaxis="y"
     ))
 
-    # 2. 后添加上周条形图（使用 overlay 重叠，marker 采用红色无填充空心框，浮在上方方便清晰查看）
+    # 2. 上周空心红框浮于上方（若数值接近且嫌重叠，可在右上角图例点击隐藏上周）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
@@ -944,7 +944,7 @@ elif system_mode == t["mode_v2"]:
         yaxis="y"
     ))
 
-    # 3. 本周累积百分比折线图 (Pareto Line)
+    # 3. 本周累积占比折线
     fig_comp_pareto.add_trace(go.Scatter(
         x=merged_comp["DefectItem"],
         y=merged_comp["CumShare"],
@@ -960,7 +960,7 @@ elif system_mode == t["mode_v2"]:
     max_loss = max(merged_comp["LossRate_Curr"].max(), merged_comp["LossRate_Prev"].max()) if not merged_comp.empty else 1.0
 
     fig_comp_pareto.update_layout(
-        barmode="overlay",  # 使两周柱子重叠，且后添加的上周红框浮于本周实柱上方
+        barmode="overlay",
         xaxis=dict(tickangle=-25),
         yaxis=dict(title="Input Loss Rate (%)", range=[0, max_loss * 1.35]),
         yaxis2=dict(title="Cumulative Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
@@ -985,7 +985,7 @@ elif system_mode == t["mode_v2"]:
         hide_index=True
     )
 
-    # 4. 底部展示双周数据清洗与分流明细反馈
+    # 4. 底部清洗与分流明细
     st.markdown("---")
     st.markdown("### 📋 双周期 MES 数据智能校验与清洗明细反馈")
     
