@@ -33,7 +33,7 @@ LANG_DICT = {
         "author": "created by xu",
         "mode_select": "🎛️ 选择系统运行模式：",
         "mode_v1": "1. 常规单文件生产看板 (v1.0 正式版)",
-        "mode_v2": "2. 周期性双文件对比分析 (v2.0 新功能)",
+        "mode_v2": "2. 周期性双文件对比分析 (v2.0 升级版)",
         "import_header": "📁 数据源导入",
         "import_help": "请将 MES 生产数据表拖拽至此处，或点击浏览（支持 MesResume_DoMethod 前缀）",
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表以生成实时看板。",
@@ -41,7 +41,7 @@ LANG_DICT = {
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
         "changelog_title": "📌 版本更新说明 (What's New)",
         "changelog_text": """
-        - **v2.0 双文件周期对比升级**：完美实现双柱重叠（overlay），上周采用红色无填充空心边框，本周采用标准实色显示。
+        - **v2.0 周期双文件对比升级**：完美引入涂布自动修正、分切 too much 放行规则，并支持上周红色空心红框浮于本周实色柱上方，底部同步展示清洗与放行明细！
         - **v1.0 稳定隔离**：正式 1.0 核心功能 100% 完整保留。
         """,
         "sidebar_filter": "🔍 数据筛选控制台",
@@ -119,7 +119,7 @@ LANG_DICT = {
         "btn_export": "📥 Export All-Chart Summary Report (Excel)",
         "changelog_title": "📌 What's New",
         "changelog_text": """
-        - **v2.0 Dual-File Comparison**: Overlapping bars with red outline for previous week and solid bars for current week.
+        - **v2.0 Dual-File Comparison Upgraded**: Integrated coating correction & too-much rules with red outline on top of solid bars.
         """,
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
@@ -214,6 +214,64 @@ system_mode = st.sidebar.radio(
     label_visibility="collapsed"
 )
 
+# 通用数据清洗与校验函数（封装涂布修正与分切 too much 放行规则）
+def process_and_clean_dataframe(df_input):
+    d = df_input.copy()
+    d.columns = d.columns.str.strip()
+
+    if "TestDate" in d.columns:
+        d["TestDate"] = pd.to_datetime(d["TestDate"], errors="coerce")
+
+    for col in ["INQty", "OutQty", "ScrapQty"]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0)
+
+    has_fpy = "FPY" in d.columns
+    if has_fpy:
+        d["FPY"] = pd.to_numeric(d["FPY"], errors="coerce")
+        if d["FPY"].dropna().max() <= 1.5:
+            d["FPY"] = d["FPY"] * 100.0
+
+    fixed_count = 0
+    preserved_too_much_count = 0
+    coating_fixed_df = pd.DataFrame()
+    preserved_too_much_df = pd.DataFrame()
+    extreme_error_df = pd.DataFrame()
+
+    if "INQty" in d.columns and "OutQty" in d.columns and "ScrapQty" in d.columns:
+        raw_abnormal_mask = d["INQty"] < d["OutQty"]
+        is_coating = d["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in d.columns else pd.Series(False, index=d.index)
+        
+        has_too_much = pd.Series(False, index=d.index)
+        for col_c in d.columns:
+            if "too much" in col_c.lower() or "toomuch" in col_c.lower():
+                num_vals = pd.to_numeric(d[col_c], errors="coerce").fillna(0)
+                has_too_much = has_too_much | (num_vals > 0)
+            elif d[col_c].dtype == object:
+                has_too_much = has_too_much | d[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
+
+        coating_fix_mask = raw_abnormal_mask & is_coating
+        fixed_count = int(coating_fix_mask.sum())
+        if fixed_count > 0:
+            coating_fixed_df = d[coating_fix_mask].copy()
+            d.loc[coating_fix_mask, "OutQty"] = d.loc[coating_fix_mask, "INQty"] - d.loc[coating_fix_mask, "ScrapQty"]
+            d.loc[d["OutQty"] < 0, "OutQty"] = 0
+            if has_fpy:
+                valid_in = coating_fix_mask & (d["INQty"] > 0)
+                d.loc[valid_in, "FPY"] = (d.loc[valid_in, "OutQty"] / d.loc[valid_in, "INQty"]) * 100.0
+                d.loc[coating_fix_mask & (d["INQty"] <= 0), "FPY"] = 0.0
+
+        preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
+        preserved_too_much_count = int(preserved_too_much_mask.sum())
+        if preserved_too_much_count > 0:
+            preserved_too_much_df = d[preserved_too_much_mask].copy()
+
+        extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
+        if extreme_error_mask.sum() > 0:
+            extreme_error_df = d[extreme_error_mask].copy()
+
+    return d, coating_fixed_df, preserved_too_much_df, extreme_error_df, has_fpy
+
 def load_uploaded_file(uploaded_file):
     if uploaded_file is None:
         return None
@@ -227,13 +285,12 @@ def load_uploaded_file(uploaded_file):
                 d = pd.read_csv(uploaded_file, encoding="gbk")
         else:
             d = pd.read_excel(uploaded_file)
-        d.columns = d.columns.str.strip()
         return d
     except Exception as ex:
         st.error(f"❌ File read error ({fname}): {ex}")
         return None
 
-def extract_week_label(filename, default_str="Week"):
+def extract_week_label(filename):
     match = re.search(r'[-_]W(\d+)', filename, re.IGNORECASE)
     if match:
         return f"Week {match.group(1)} ({filename})"
@@ -258,13 +315,15 @@ if system_mode == t["mode_v1"]:
         st.markdown(t["changelog_text"])
         st.stop()
 
-    df = load_uploaded_file(uploaded_file)
-    if df is None:
+    raw_df = load_uploaded_file(uploaded_file)
+    if raw_df is None:
         st.stop()
 
     file_name = uploaded_file.name
     if not file_name.lower().startswith("mesresume_domethod"):
         st.warning(f"⚠️ Warning: File **{file_name}** does not start with `MesResume_DoMethod`. Trying to parse anyway.")
+
+    df, coating_fixed_df, preserved_too_much_df, extreme_error_df, has_fpy = process_and_clean_dataframe(raw_df)
 
     required_cols = ["INQty", "OutQty", "ScrapQty"]
     missing_cols = [c for c in required_cols if c not in df.columns]
@@ -272,82 +331,20 @@ if system_mode == t["mode_v1"]:
         st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
         st.stop()
 
-    if "TestDate" in df.columns:
-        df["TestDate"] = pd.to_datetime(df["TestDate"], errors="coerce")
-
-    for col in ["INQty", "OutQty", "ScrapQty"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
-    has_fpy = "FPY" in df.columns
-    if has_fpy:
-        df["FPY"] = pd.to_numeric(df["FPY"], errors="coerce")
-        if df["FPY"].dropna().max() <= 1.5:
-            df["FPY"] = df["FPY"] * 100.0
-
-    fixed_count = 0
-    preserved_too_much_count = 0
-    coating_fixed_df = pd.DataFrame()
-    preserved_too_much_df = pd.DataFrame()
-    extreme_error_df = pd.DataFrame()
-
-    if "INQty" in df.columns and "OutQty" in df.columns and "ScrapQty" in df.columns:
-        raw_abnormal_mask = df["INQty"] < df["OutQty"]
-        is_coating = df["ProcessName"].astype(str).str.contains("coating|涂布", case=False, na=False) if "ProcessName" in df.columns else pd.Series(False, index=df.index)
-        
-        has_too_much = pd.Series(False, index=df.index)
-        for col_c in df.columns:
-            if "too much" in col_c.lower() or "toomuch" in col_c.lower():
-                num_vals = pd.to_numeric(df[col_c], errors="coerce").fillna(0)
-                has_too_much = has_too_much | (num_vals > 0)
-            elif df[col_c].dtype == object:
-                has_too_much = has_too_much | df[col_c].astype(str).str.contains("too\\s*much", case=False, na=False)
-
-        coating_fix_mask = raw_abnormal_mask & is_coating
-        fixed_count = int(coating_fix_mask.sum())
-        if fixed_count > 0:
-            coating_fixed_df = df[coating_fix_mask].copy()
-            df.loc[coating_fix_mask, "OutQty"] = df.loc[coating_fix_mask, "INQty"] - df.loc[coating_fix_mask, "ScrapQty"]
-            df.loc[df["OutQty"] < 0, "OutQty"] = 0
-            if has_fpy:
-                valid_in = coating_fix_mask & (df["INQty"] > 0)
-                df.loc[valid_in, "FPY"] = (df.loc[valid_in, "OutQty"] / df.loc[valid_in, "INQty"]) * 100.0
-                df.loc[coating_fix_mask & (df["INQty"] <= 0), "FPY"] = 0.0
-
-        preserved_too_much_mask = raw_abnormal_mask & (~is_coating) & has_too_much
-        preserved_too_much_count = int(preserved_too_much_mask.sum())
-        if preserved_too_much_count > 0:
-            preserved_too_much_df = df[preserved_too_much_mask].copy()
-
-        extreme_error_mask = raw_abnormal_mask & (~is_coating) & (~has_too_much)
-        if extreme_error_mask.sum() > 0:
-            extreme_error_df = df[extreme_error_mask].copy()
-
-    if fixed_count > 0 or preserved_too_much_count > 0 or not extreme_error_df.empty:
+    if not coating_fixed_df.empty or not preserved_too_much_df.empty or not extreme_error_df.empty:
         msg_parts = []
-        if fixed_count > 0:
-            msg_parts.append(f"涂布工序已自动修正 **{fixed_count}** 条异常记录")
-        if preserved_too_much_count > 0:
-            msg_parts.append(f"分切来料多（`too much`）已保留原数据 **{preserved_too_much_count}** 条继续执行")
+        if not coating_fixed_df.empty:
+            msg_parts.append(f"涂布工序已自动修正 **{len(coating_fixed_df)}** 条异常记录")
+        if not preserved_too_much_df.empty:
+            msg_parts.append(f"分切来料多（`too much`）已保留原数据 **{len(preserved_too_much_df)}** 条继续执行")
         if not extreme_error_df.empty:
             msg_parts.append(f"检测到 **{len(extreme_error_df)}** 条疑似录入错误的极端异常数据")
-        
-        if curr_lang == "zh":
-            st.warning("⚠️ **MES 数据智能校验与分流报告**：" + "；".join(msg_parts) + "。")
-        else:
-            st.warning(f"⚠️ **Data Validation & Routing**: " + "；".join(msg_parts))
+        st.warning("⚠️ **MES 数据智能校验与分流报告**：" + "；".join(msg_parts) + "。")
     else:
-        if curr_lang == "zh":
-            st.success("✅ **数据逻辑校验通过**：当前数据集中未发现 `投入 < 产出` 的异常偏差记录。")
-        else:
-            st.success("✅ **Data Integrity Verified**: No `INQty < OutQty` discrepancies detected.")
+        st.success("✅ **数据逻辑校验通过**：当前数据集中未发现 `投入 < 产出` 的异常偏差记录。")
 
     if not extreme_error_df.empty:
-        if curr_lang == "zh":
-            st.error(f"🚨 **发现 {len(extreme_error_df)} 条极端不合理数据（无 too much 支撑的产出远大于投入）！请核对以下明细并截图上报 MES 管理员修改：**")
-        else:
-            st.error(f"🚨 **Detected {len(extreme_error_df)} extreme error records (Output >> Input without 'too much'). Please review and report:**")
-        
+        st.error(f"🚨 **发现 {len(extreme_error_df)} 条极端不合理数据（无 too much 支撑的产出远大于投入）！请核对以下明细：**")
         highlight_cols = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "PersonName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in extreme_error_df.columns]
         st.dataframe(extreme_error_df[highlight_cols], use_container_width=True, hide_index=True)
         st.markdown("---")
@@ -356,14 +353,11 @@ if system_mode == t["mode_v1"]:
     all_columns = df.columns.tolist()
     DYNAMIC_DEFECT_COLS = []
     for col in all_columns:
-        col_lower = col.lower()
-        is_excluded = any(kw in col_lower for kw in exclude_keywords)
-        if is_excluded:
-            continue
-        converted = pd.to_numeric(df[col], errors="coerce")
-        if converted.notna().sum() > 0:
-            df[col] = converted.fillna(0)
-            DYNAMIC_DEFECT_COLS.append(col)
+        if not any(kw in col.lower() for kw in exclude_keywords):
+            converted = pd.to_numeric(df[col], errors="coerce")
+            if converted.notna().sum() > 0:
+                df[col] = converted.fillna(0)
+                DYNAMIC_DEFECT_COLS.append(col)
 
     st.sidebar.header(t["sidebar_filter"])
     search_keyword = st.sidebar.text_input(t["search_label"], "", key="v1_search").strip()
@@ -850,30 +844,41 @@ if system_mode == t["mode_v1"]:
 
 
 # ==============================================================================
-# 🔵 模式二：周期性双文件对比分析 (v2.0 新功能)
+# 🔵 模式二：周期性双文件对比分析 (v2.0 升级版)
 # ==============================================================================
 elif system_mode == t["mode_v2"]:
     st.sidebar.header("📁 双周期数据源导入 (v2.0)")
-    st.sidebar.markdown("请分别上传**上周/基准期文件**与**本周/对比期文件**进行双周环比分析。")
+    st.sidebar.markdown("请分别上传**上周/基准期文件**与**本周/对比期文件**（格式如 `MesResume_DoMethod-W10.xlsx`）：")
     
     file_prev = st.sidebar.file_uploader("📥 上周 / 基准期文件 (e.g., -W10)", type=["xlsx", "xls", "csv"], key="file_prev")
     file_curr = st.sidebar.file_uploader("📥 本周 / 对比期文件 (e.g., -W11)", type=["xlsx", "xls", "csv"], key="file_curr")
 
     if file_prev is None or file_curr is None:
-        st.info("👈 请在左侧边栏同时上传 **上周（基准期）** 与 **本周（对比期）** 两个 MES 数据文件，以启动周期双文件对比功能。")
+        st.info("👈 请在左侧边栏同时上传 **上周（基准期）** 与 **本周（对比期）** 两个 MES 数据文件（支持 MesResume_DoMethod-Wxx 格式），以启动周期双文件对比功能。")
         st.stop()
 
-    df_prev = load_uploaded_file(file_prev)
-    df_curr = load_uploaded_file(file_curr)
+    raw_df_prev = load_uploaded_file(file_prev)
+    raw_df_curr = load_uploaded_file(file_curr)
 
-    if df_prev is None or df_curr is None:
+    if raw_df_prev is None or raw_df_curr is None:
         st.stop()
 
-    label_prev = extract_week_label(file_prev.name, "Previous Week")
-    label_curr = extract_week_label(file_curr.name, "Current Week")
+    label_prev = extract_week_label(file_prev.name)
+    label_curr = extract_week_label(file_curr.name)
+
+    # 分别对两周数据应用完整的数据清洗与校验逻辑
+    df_prev, coat_fix_prev, pres_toomuch_prev, ext_prev, _ = process_and_clean_dataframe(raw_df_prev)
+    df_curr, coat_fix_curr, pres_toomuch_curr, ext_curr, _ = process_and_clean_dataframe(raw_df_curr)
 
     st.subheader(f"📊 周期性双文件对比看板：【{label_prev}】 VS 【{label_curr}】")
     st.markdown("---")
+
+    # 双周数据校验报告展示
+    total_cleaned_prev = len(coat_fix_prev) + len(pres_toomuch_prev)
+    total_cleaned_curr = len(coat_fix_curr) + len(pres_toomuch_curr)
+    
+    if total_cleaned_prev > 0 or total_cleaned_curr > 0:
+        st.warning(f"⚠️ **双周期数据清洗与校验提示**：上周文件清洗放行 **{total_cleaned_prev}** 条；本周文件清洗放行 **{total_cleaned_curr}** 条。详见底部明细。")
 
     exclude_keywords = ["lotno", "batch", "person", "machine", "date", "class", "product", "process", "qty", "fpy", "scrap"]
     
@@ -910,11 +915,22 @@ elif system_mode == t["mode_v2"]:
 
     merged_comp = merged_comp.sort_values(by="DefectQty_Curr", ascending=False).reset_index(drop=True)
 
-    st.markdown("### 📊 柱状图重叠对比：上周（红色空心边框） vs 本周（实色常规显示）")
+    st.markdown("### 📊 柱状图重叠对比：本周（实色柱）与上周（红色空心边框浮于上方）")
     
     fig_comp_pareto = go.Figure()
 
-    # 1. 上周条形图（使用 overlay 重叠，marker 采用红色无填充空心框）
+    # 1. 先添加本周实色柱（作为底层柱展示）
+    fig_comp_pareto.add_trace(go.Bar(
+        x=merged_comp["DefectItem"],
+        y=merged_comp["LossRate_Curr"],
+        name=f"本周: {label_curr} (Loss Rate %)",
+        marker_color="indianred",
+        text=merged_comp["LossRate_Curr"].apply(lambda v: f"{v:.2f}%" if v > 0 else ""),
+        textposition="outside",
+        yaxis="y"
+    ))
+
+    # 2. 后添加上周条形图（使用 overlay 重叠，marker 采用红色无填充空心框，浮在上方方便清晰查看）
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
@@ -924,17 +940,6 @@ elif system_mode == t["mode_v2"]:
             line=dict(color="red", width=2.5)
         ),
         text=merged_comp["LossRate_Prev"].apply(lambda v: f"{v:.2f}%" if v > 0 else ""),
-        textposition="outside",
-        yaxis="y"
-    ))
-
-    # 2. 本周条形图（使用标准实色显示）
-    fig_comp_pareto.add_trace(go.Bar(
-        x=merged_comp["DefectItem"],
-        y=merged_comp["LossRate_Curr"],
-        name=f"本周: {label_curr} (Loss Rate %)",
-        marker_color="indianred",
-        text=merged_comp["LossRate_Curr"].apply(lambda v: f"{v:.2f}%" if v > 0 else ""),
         textposition="outside",
         yaxis="y"
     ))
@@ -955,7 +960,7 @@ elif system_mode == t["mode_v2"]:
     max_loss = max(merged_comp["LossRate_Curr"].max(), merged_comp["LossRate_Prev"].max()) if not merged_comp.empty else 1.0
 
     fig_comp_pareto.update_layout(
-        barmode="overlay",  # 关键设置：使上周和本周的柱子完美重叠在一起
+        barmode="overlay",  # 使两周柱子重叠，且后添加的上周红框浮于本周实柱上方
         xaxis=dict(tickangle=-25),
         yaxis=dict(title="Input Loss Rate (%)", range=[0, max_loss * 1.35]),
         yaxis2=dict(title="Cumulative Share (%)", overlaying="y", side="right", range=[0, 125], showgrid=False),
@@ -979,3 +984,46 @@ elif system_mode == t["mode_v2"]:
         use_container_width=True,
         hide_index=True
     )
+
+    # 4. 底部展示双周数据清洗与分流明细反馈
+    st.markdown("---")
+    st.markdown("### 📋 双周期 MES 数据智能校验与清洗明细反馈")
+    
+    comp_tab1, comp_tab2 = st.tabs([
+        f"🛠️ 涂布工序自动修正明细 (上周: {len(coat_fix_prev)}条 | 本周: {len(coat_fix_curr)}条)", 
+        f"🚀 分切来料多(too much)放行明细 (上周: {len(pres_toomuch_prev)}条 | 本周: {len(pres_toomuch_curr)}条)"
+    ])
+
+    with comp_tab1:
+        col_p1, col_c1 = st.columns(2)
+        with col_p1:
+            st.markdown(f"**【{label_prev} - 涂布修正明细】**")
+            if not coat_fix_prev.empty:
+                cols_c = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in coat_fix_prev.columns]
+                st.dataframe(coat_fix_prev[cols_c], use_container_width=True, hide_index=True)
+            else:
+                st.success("上周无涂布修正记录。")
+        with col_c1:
+            st.markdown(f"**【{label_curr} - 涂布修正明细】**")
+            if not coat_fix_curr.empty:
+                cols_c = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in coat_fix_curr.columns]
+                st.dataframe(coat_fix_curr[cols_c], use_container_width=True, hide_index=True)
+            else:
+                st.success("本周无涂布修正记录。")
+
+    with comp_tab2:
+        col_p2, col_c2 = st.columns(2)
+        with col_p2:
+            st.markdown(f"**【{label_prev} - 来料多保留放行明细】**")
+            if not pres_toomuch_prev.empty:
+                cols_p = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in pres_toomuch_prev.columns]
+                st.dataframe(pres_toomuch_prev[cols_p], use_container_width=True, hide_index=True)
+            else:
+                st.success("上周无来料多保留记录。")
+        with col_c2:
+            st.markdown(f"**【{label_curr} - 来料多保留放行明细】**")
+            if not pres_toomuch_curr.empty:
+                cols_p = [c for c in ["BatchNo", "MasterLotNo", "ProcessName", "MachineName", "INQty", "OutQty", "ScrapQty", "TestDate"] if c in pres_toomuch_curr.columns]
+                st.dataframe(pres_toomuch_curr[cols_p], use_container_width=True, hide_index=True)
+            else:
+                st.success("本周无来料多保留记录。")
