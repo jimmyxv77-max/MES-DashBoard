@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import io
 import re
+from openpyxl import load_workbook
 from openpyxl.chart import BarChart, LineChart, Reference
 
 # ================= 🎛️ 不良目标线锁死接口 (预留配置区) =================
@@ -27,7 +28,7 @@ DEFAULT_CHART_CONFIG = {
     "modeBarButtonsToAdd": ["hoverClosestCartesian", "hoverCompareCartesian"]
 }
 
-# ================= 语言词典配置 =================
+# ================= 语言词典配置 (确保英文模式100%无中文交互) =================
 LANG_DICT = {
     "zh": {
         "title_text": "Electrode Dashboard",
@@ -40,11 +41,6 @@ LANG_DICT = {
         "import_info": "👈 请在左侧边栏拖拽或选择你的 MES 生产数据表以生成实时看板。",
         "export_header": "📥 报告导出",
         "btn_export": "📥 导出全图表汇总报表 (Excel)",
-        "changelog_title": "📌 版本更新说明 (What's New)",
-        "changelog_text": """
-        - **v2.0 周期双文件对比优化**：完美支持点击图例隐藏/显示任意一周数据，优化数字标签防重叠逻辑，支持自由缩放平移！
-        - **v1.0 稳定隔离**：正式 1.0 核心功能 100% 完整保留。
-        """,
         "sidebar_filter": "🔍 数据筛选控制台",
         "search_label": "🔎 卷号 (BatchNo) / 批次号 (MasterLotNo) 检索：",
         "filter_process": "筛选工序 (ProcessName)",
@@ -110,30 +106,26 @@ LANG_DICT = {
     "en": {
         "title_text": "Electrode Dashboard",
         "author": "created by xu",
-        "mode_select": "🎛️ Select System Mode:",
-        "mode_v1": "1. Standard Single-File Dashboard (v1.0)",
+        "mode_select": "🎛️ System Mode:",
+        "mode_v1": "1. Standard Dashboard (v1.0)",
         "mode_v2": "2. Periodic Dual-File Comparison (v2.0)",
         "import_header": "📁 Data Source Import",
-        "import_help": "Drag and drop your MES production data table here",
-        "import_info": "👈 Please drag or select your MES production data table in the sidebar.",
+        "import_help": "Drag and drop your MES production data here (MesResume_DoMethod)",
+        "import_info": "👈 Please upload your MES production data table in the sidebar to get started.",
         "export_header": "📥 Report Export",
-        "btn_export": "📥 Export All-Chart Summary Report (Excel)",
-        "changelog_title": "📌 What's New",
-        "changelog_text": """
-        - **v2.0 Dual-File Comparison Upgraded**: Interactive legend click-to-hide support.
-        """,
+        "btn_export": "📥 Export Summary Report (Excel)",
         "sidebar_filter": "🔍 Data Filter Console",
         "search_label": "🔎 Search BatchNo / MasterLotNo:",
-        "filter_process": "Filter Process (ProcessName)",
-        "filter_product": "Filter Product (ProductCName)",
-        "filter_machine": "Filter Machine (MachineName)",
-        "filter_person": "Filter Operator (PersonName)",
-        "filter_class": "Filter Class (ClassNo)",
+        "filter_process": "Filter Process",
+        "filter_product": "Filter Product Model",
+        "filter_machine": "Filter Machine",
+        "filter_person": "Filter Operator",
+        "filter_class": "Filter Shift",
         "chk_abnormal": "Show Low Yield Only (FPY < 95%)",
         "target_header": "🎯 Quality Target Setting",
         "t_machine": "Machine Roll Yield Target (%)",
         "t_date": "Daily Avg Yield Target (%)",
-        "kpi_batches": "Production Batches",
+        "kpi_batches": "Batches",
         "kpi_in": "Total Input (INQty)",
         "kpi_out": "Total Output (OutQty)",
         "kpi_scrap": "Total Scrap (ScrapQty)",
@@ -142,8 +134,8 @@ LANG_DICT = {
         "pareto_title": "📊 Defect Pareto Chart",
         "radio_share": "Select Bar Chart Metric:",
         "share_1": "Defect Share (%)",
-        "share_2": "Loss Rate of Total Input (%)",
-        "table_header": "📋 Defect Quantity & Dual-Dimension Share Table",
+        "share_2": "Input Loss Rate (%)",
+        "table_header": "📋 Defect & Share Comparison Table",
         "col_defect": "Defect Item",
         "col_count": "Defect Qty",
         "col_s_defect": "Defect Share",
@@ -152,14 +144,14 @@ LANG_DICT = {
         "defect_trend_header": "🔍 Single Defect Trend Analysis",
         "defect_multi_header": "📊 Single Defect Responsibility Ranking",
         "def_sel": "🎯 1. Select Defect Item:",
-        "def_view": "📊 2. Select View Granularity:",
+        "def_view": "📊 2. Select Granularity:",
         "view_daily": "Daily Summary Trend",
-        "view_roll": "Roll-level Detail Trend (by Machine)",
+        "view_roll": "Roll-level Detail Trend",
         "def_metric": "📐 3. Select Metric:",
         "m_count": "Defect Quantity Trend",
         "m_rate": "Defect Rate Trend (% of Input)",
-        "y_max_label": "🎚️ Single Defect Y-Axis Upper Limit:",
-        "def_target_label": "🎯 Single Defect Target Threshold:",
+        "y_max_label": "🎚️ Defect Y-Axis Upper Limit:",
+        "def_target_label": "🎯 Defect Target Threshold:",
         "rank_sel_def": "🎯 Select Defect Item:",
         "rank_sel_dim": "📊 Select Dimension:",
         "dim_machine": "MachineName",
@@ -168,13 +160,13 @@ LANG_DICT = {
         "rank_chart_title_mid": "] Cumulative Defect & Share by ",
         "rank_chart_title_suf": "",
         "rank_xaxis": "Total Defect Qty",
-        "machine_filter_label": "🎛️ Select Machine(s) to View:",
-        "defect_machine_filter_label": "🎛️ Select Defect Machine(s) to Track:",
+        "machine_filter_label": "🎛️ Select Machine(s):",
+        "defect_machine_filter_label": "🎛️ Select Defect Machine(s):",
         "yield_trend_header": "📈 Yield Trend Analysis",
         "y_min_label": "🎚️ Yield Chart Y-Axis Lower Limit (%):",
         "t_m_trend": "📈 1. Machine Roll Yield (FPY) Trend",
         "t_d_trend": "📅 2. Daily Input/Output & Avg Yield Combo Trend",
-        "table_detail": "📋 Production Batch Detail Table",
+        "table_detail": "📋 Production Batch Detail Table (Filtered)",
         "x_time": "Production Time",
         "x_date": "Production Date",
         "y_roll_fpy": "Roll Yield FPY (%)",
@@ -311,9 +303,6 @@ if system_mode == t["mode_v1"]:
 
     if uploaded_file is None:
         st.info(t["import_info"])
-        st.markdown("---")
-        st.markdown(f"### {t['changelog_title']}")
-        st.markdown(t["changelog_text"])
         st.stop()
 
     raw_df = load_uploaded_file(uploaded_file)
@@ -390,9 +379,6 @@ if system_mode == t["mode_v1"]:
     show_only_abnormal = st.sidebar.checkbox(t["chk_abnormal"], value=False, key="v1_abnormal_chk")
     if show_only_abnormal and has_fpy:
         display_df = display_df[display_df["FPY"] < 95.0]
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(t["changelog_text"])
 
     total_in_qty = display_df["INQty"].sum() if "INQty" in display_df.columns else 0
     total_out_qty = display_df["OutQty"].sum() if "OutQty" in display_df.columns else 0
@@ -930,7 +916,7 @@ elif system_mode == t["mode_v2"]:
         yaxis="y"
     ))
 
-    # 2. 上周空心红框浮于上方（若数值接近且嫌重叠，可在右上角图例点击隐藏上周）
+    # 2. 上周空心红框浮于上方
     fig_comp_pareto.add_trace(go.Bar(
         x=merged_comp["DefectItem"],
         y=merged_comp["LossRate_Prev"],
@@ -991,7 +977,7 @@ elif system_mode == t["mode_v2"]:
     
     comp_tab1, comp_tab2 = st.tabs([
         f"🛠️ 涂布工序自动修正明细 (上周: {len(coat_fix_prev)}条 | 本周: {len(coat_fix_curr)}条)", 
-        f"🚀 分切来料多(too much)放行明细 (上周: {len(pres_toomuch_prev)}条 | 本周: {len(pres_toomuch_curr)}条)"
+        f"🚀 分切来料多(too much)保留放行明细 (上周: {len(pres_toomuch_prev)}条 | 本周: {len(pres_toomuch_curr)}条)"
     ])
 
     with comp_tab1:
